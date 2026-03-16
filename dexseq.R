@@ -103,7 +103,7 @@ output_columns <- c(
     "genomicData.width", "genomicData.strand"
 )
 
-# ── ASO replicate 1 ───────────────────────────────────────────────────────────
+# ── ASO 1 ───────────────────────────────────────────────────────────
 bam_files_aso1 <- BamFileList(c(
     "CNhi10491_150515_SN549_0169_AC6YUKACXX_NoIndex_L007_R1_001.F6-001-RNA-003-03G07-216C.ACC.10003.bam",
     "CNhi10492_150515_SN549_0169_AC6YUKACXX_NoIndex_L008_R1_001.F6-001-RNA-003-03H07-75B7.GCT.10003.bam",
@@ -129,7 +129,7 @@ write.table(
     sep       = "\t"
 )
 
-# ── ASO replicate 3 ───────────────────────────────────────────────────────────
+# ── ASO 3 ───────────────────────────────────────────────────────────
 bam_files_aso3 <- BamFileList(c(
     "CNhi10487_150515_SN549_0169_AC6YUKACXX_NoIndex_L003_R1_001.F6-001-RNA-003-03F07-416D.ACC.10003.bam",
     "CNhi10495_150515_SN549_0170_BC6YUVACXX_NoIndex_L004_R1_001.F6-001-RNA-003-03E07-93DC.ACG.10003.bam",
