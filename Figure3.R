@@ -26,7 +26,7 @@ library(RColorBrewer)
 library(biomaRt)
 library(scales)
 
-# pyGenomeTracks --tracks plot_smyd3.ini --region chr1:245749342-246507312 -o Figure3A.png --plotWidth 120 --dpi 130
+# pyGenomeTracks --tracks plot_smyd3.ini --region chr1:245739000-246520000 -o Figure3A.png --plotWidth 120 --dpi 130
 
 panel_theme <- theme(
     panel.border       = element_blank(),
