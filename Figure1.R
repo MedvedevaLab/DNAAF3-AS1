@@ -106,10 +106,17 @@ panel_b <- ggplot(anno_stat_combined, aes(x = Feature, y = Frequency, fill = Typ
     coord_flip()
 
 # ── Panel C: Differential promoters sankey (ASO_01) ───────────────────────────
-dex_results_aso1      <- read.csv("aso1_dex_results.csv", sep = "\t")
-dex_results_aso1      <- dex_results_aso1[!is.na(dex_results_aso1$log2fold_control_aso), ]
-dex_results_aso1_up   <- dplyr::filter(dex_results_aso1, log2fold_control_aso < 0)
-dex_results_aso1_down <- dplyr::filter(dex_results_aso1, log2fold_control_aso > 0)
+dex_results_aso1      <- read.csv("aso1_dex_results_not_sig.csv", sep = "\t")
+dex_results_aso1 <- dex_results_aso1[dex_results_aso1$padj < 0.05,]
+dex_results_aso1      <- dex_results_aso1[!is.na(dex_results_aso1$log2fold_aso_control), ]
+dex_results_aso1_up   <- dplyr::filter(dex_results_aso1, log2fold_aso_control > 0)
+dex_results_aso1_down <- dplyr::filter(dex_results_aso1, log2fold_aso_control < 0)
+
+dex_results_aso3      <- read.csv("aso3_dex_results_not_sig.csv", sep = "\t")
+dex_results_aso3 <- dex_results_aso3[dex_results_aso3$padj < 0.05,]
+dex_results_aso3      <- dex_results_aso3[!is.na(dex_results_aso3$log2fold_aso_control), ]
+dex_results_aso3_up   <- dplyr::filter(dex_results_aso3, log2fold_aso_control > 0)
+dex_results_aso3_down <- dplyr::filter(dex_results_aso3, log2fold_aso_control < 0)
 
 coords_up <- dex_results_aso1_up[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "genomicData.strand")]
 colnames(coords_up) <- c("seqnames", "start", "end", "strand")

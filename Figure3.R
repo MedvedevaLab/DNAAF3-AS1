@@ -100,39 +100,6 @@ panel_c <- FeaturePlot(seurat_object, paste0("add_module_score", 2), pt.size = 0
   theme(text = element_text(size = 6)) +
   labs(title = "", tag = "C")
 
-df <- read.csv('rnachrom_heatmap.csv', header = F, sep =',')
-colnames(df) <- c('experiment', 'chromosome', 'density')
-
-df$chromosome <- factor(df$chromosome, levels = c("chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9",
-"chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18",
-"chr19", "chr20", "chr21", "chr22", "chrX", "chrY"))
-
-df$experiment <- factor(df$experiment, levels = c("Exp.ID: 1; iMARGI (AC010327.4)",
-"Exp.ID: 2; iMARGI (AC010327.4)",
-"Exp.ID: 3; iMARGI (AC010327.4)",
-"Exp.ID: 4; iMARGI (AC010327.4)",
-"Exp.ID: 5; iMARGI (AC010327.4)",
-"Exp.ID: 7; GRID (AC010327.4)",
-"Exp.ID: 8; GRID (AC010327.4)",
-"Exp.ID: 9; Red-C (AC010327.4)",
-"Exp.ID: 10; Red-C (AC010327.4)"))
-
-# df[is.na(df$density), 'density'] = 0
-df$density <- log(df$density, 10)
-panel_d <- ggplot(df, aes(x = chromosome, y = experiment, fill = density)) +
-  theme_bw() +
-  geom_tile() +
-  scale_fill_distiller(palette = "Reds", direction = 1, na.value = 'white') +
-  scale_x_discrete(drop = FALSE) +
-  scale_y_discrete(drop = FALSE) +
-  panel_theme +
-  theme(strip.text.x = element_text(size = 6),
-        strip.background = element_blank(),
-        axis.title.x = element_blank(),
-        axis.text.x = element_text(angle = 90, size = 6),
-        axis.title.y = element_blank()) +
-  labs(title = "", x = 'Chromosome', y = 'Experiment', fill = 'log10(Contacts Density)', tag = "D")
-
 df1 <- read.csv("rnachrom1.csv",sep = ',')
 df1$experiment <- 'iMARGI1'
 
@@ -205,7 +172,7 @@ aso01_contacts$log_padj <-  -log(aso01_contacts$fdr,10)
 
 colors <- c('TRUE' = "#E31A1C", 'FALSE' = "#000000")
 
-panel_e <- ggplot(aso01_contacts, aes(x = log2FC,
+panel_d <- ggplot(aso01_contacts, aes(x = log2FC,
   y = log_padj,
   label = ifelse(in_himorna, geneSymbol, NA),
   color = in_himorna)) +
@@ -215,7 +182,7 @@ panel_e <- ggplot(aso01_contacts, aes(x = log2FC,
   theme_bw() +
   panel_theme +
   theme(text = element_text(size = 4)) +
-    labs(title = "ASO 01", x = "", y = "", tag = "E")
+    labs(title = "ASO 01", x = "", y = "", tag = "D")
 
 
 ###############################################################
@@ -306,7 +273,7 @@ heatmap_long$condition  <- factor(heatmap_long$condition,  levels = c("ASO_01", 
 # heatmap_long$value <- scale(heatmap_long$value)
 
 
-panel_f <- ggplot(heatmap_long, aes(x = condition, y = row_label, color = log2fold_aso_control, size = -log10(padj))) +
+panel_e <- ggplot(heatmap_long, aes(x = condition, y = row_label, color = log2fold_aso_control, size = -log10(padj))) +
   geom_point() +
   facet_grid(annotation ~ ., scales = "free_y", space = "free_y") +
   scale_color_gradientn(
@@ -320,13 +287,13 @@ panel_f <- ggplot(heatmap_long, aes(x = condition, y = row_label, color = log2fo
     axis.text.y      = element_text(size = 4),
     legend.title     = element_text(size = 6),
     legend.text      = element_text(size = 5))+
-    labs(title = "", x = "", y = "", tag = "F")
+    labs(title = "", x = "", y = "", tag = "E")
 
 
 figure3_grob <- arrangeGrob(
-  p, panel_c, panel_d, panel_e, panel_f, #  panel_e1,
+  p, panel_c, panel_d, panel_e, #  panel_e1,
   ncol = 2, nrow = 3,
-  layout_matrix = rbind(c(1, 3), c(1, 4), c(2, 5))
+  layout_matrix = rbind(c(1, 3), c(1, 4), c(2, 4))
 )
 
 ggsave("Figure3.png", plot = figure3_grob, width = 16, height = 26, units = "cm")
