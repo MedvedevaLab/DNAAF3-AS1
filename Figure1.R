@@ -157,3 +157,102 @@ figure1_grob <- arrangeGrob(
     layout_matrix = rbind(c(1, 3), c(2, 3))
 )
 ggsave("Figure1.png", plot = figure1_grob, width = 18, height = 15, units = "cm")
+
+
+
+# Promoter changes direction
+
+dex_results_aso1 <- read.csv("aso1_dex_results_not_sig.csv", sep = "\t")
+dex_results_aso1 <- dex_results_aso1[dex_results_aso1$padj < 0.05,]
+
+dex_results_aso1_up <- dplyr::filter(dex_results_aso1, log2fold_aso_control > 0)
+dex_results_aso1_down <- dplyr::filter(dex_results_aso1, log2fold_aso_control < 0)
+
+coords <- dex_results_aso1_up[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "genomicData.strand")]
+colnames(coords) <- c("seqnames", "start", "end", "strand")
+granges <- toGRanges(coords, format = "BED")
+granges_anno_up   <- annotatePeak(granges,   tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
+granges_anno_up_df <- as.data.frame(granges_anno_up@anno)
+granges_anno_up_df$effect <- 'up'
+
+coords <- dex_results_aso1_down[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "genomicData.strand")]
+colnames(coords) <- c("seqnames", "start", "end", "strand")
+granges <- toGRanges(coords, format = "BED")
+granges_anno_down   <- annotatePeak(granges,   tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
+granges_anno_down_df <- as.data.frame(granges_anno_down@anno)
+granges_anno_down_df$effect <- 'down'
+
+genes_with_switch <- c()
+for(gene in unique(c(granges_anno_up_df$geneId, granges_anno_down_df$geneId)))
+{
+    granges_anno_up_df_gene <- granges_anno_up_df[granges_anno_up_df$geneId == gene,]
+    granges_anno_down_df_gene <- granges_anno_down_df[granges_anno_down_df$geneId == gene,]
+    granges_anno_up_df_gene_gene_promoter <- granges_anno_up_df_gene[granges_anno_up_df_gene$annotation == 'Promoter',]
+    granges_anno_down_df_gene_gene_promoter <- granges_anno_down_df_gene[granges_anno_down_df_gene$annotation == 'Promoter',]
+
+    if((('+' %in% granges_anno_up_df_gene_gene_promoter$strand) && # both + and - present
+       ('-' %in% granges_anno_down_df_gene_gene_promoter$strand)) ||
+      (('-' %in% granges_anno_up_df_gene_gene_promoter$strand) &&
+       ('+' %in% granges_anno_down_df_gene_gene_promoter$strand)))
+    {
+        genes_with_switch <- c(genes_with_switch, gene)
+    }
+}
+
+
+n_genes_aso01 <- length(unique(dex_results_aso1$groupID))
+n_genes_switch_aso01 <- length(unique(genes_with_switch))
+
+dex_results_aso3      <- read.csv("aso3_dex_results_not_sig.csv", sep = "\t")
+dex_results_aso3 <- dex_results_aso3[dex_results_aso3$padj < 0.05,]
+
+dex_results_aso3_up <- dplyr::filter(dex_results_aso3, log2fold_aso_control > 0)
+dex_results_aso3_down <- dplyr::filter(dex_results_aso3, log2fold_aso_control < 0)
+
+coords <- dex_results_aso3_up[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "genomicData.strand")]
+colnames(coords) <- c("seqnames", "start", "end", "strand")
+granges <- toGRanges(coords, format = "BED")
+granges_anno_up   <- annotatePeak(granges,   tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
+granges_anno_up_df <- as.data.frame(granges_anno_up@anno)
+granges_anno_up_df$effect <- 'up'
+
+coords <- dex_results_aso3_down[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "genomicData.strand")]
+colnames(coords) <- c("seqnames", "start", "end", "strand")
+granges <- toGRanges(coords, format = "BED")
+granges_anno_down   <- annotatePeak(granges,   tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
+granges_anno_down_df <- as.data.frame(granges_anno_down@anno)
+granges_anno_down_df$effect <- 'down'
+
+genes_with_switch <- c()
+for(gene in unique(c(granges_anno_up_df$geneId, granges_anno_down_df$geneId)))
+{
+    granges_anno_up_df_gene <- granges_anno_up_df[granges_anno_up_df$geneId == gene,]
+    granges_anno_down_df_gene <- granges_anno_down_df[granges_anno_down_df$geneId == gene,]
+    granges_anno_up_df_gene_gene_promoter <- granges_anno_up_df_gene[granges_anno_up_df_gene$annotation == 'Promoter',]
+    granges_anno_down_df_gene_gene_promoter <- granges_anno_down_df_gene[granges_anno_down_df_gene$annotation == 'Promoter',]
+
+    if((('+' %in% granges_anno_up_df_gene_gene_promoter$strand) && # both + and - present
+       ('-' %in% granges_anno_down_df_gene_gene_promoter$strand)) ||
+      (('-' %in% granges_anno_up_df_gene_gene_promoter$strand) &&
+       ('+' %in% granges_anno_down_df_gene_gene_promoter$strand)))
+    {
+        genes_with_switch <- c(genes_with_switch, gene)
+    }
+}
+
+n_genes_aso03 <- length(unique(dex_results_aso3$groupID))
+n_genes_switch_aso03 <- length(unique(genes_with_switch))
+
+df <- data.frame(c(n_genes_switch_aso01, n_genes_aso01 - n_genes_switch_aso01, n_genes_switch_aso03, n_genes_aso03 - n_genes_switch_aso03),
+    c('ASO_01','ASO_01','ASO_03','ASO_03'),
+    c(TRUE, FALSE, TRUE, FALSE))
+colnames(df) <- c('n_genes', 'aso', 'bidirectional')
+
+panel_c <- ggplot(df, aes(x = aso, y = n_genes, fill = bidirectional)) +
+    theme_bw() +
+    geom_bar(position = "stack", stat = "identity") +
+    scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
+    panel_theme +
+    guides(fill = guide_legend(ncol = 3)) +
+    labs(title = "", y = "Number of genes",
+         fill = "Bidirectional switch", tag = "C")

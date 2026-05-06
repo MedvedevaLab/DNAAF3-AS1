@@ -19,9 +19,9 @@ get_dex_results <- function(promoter_regions, bam_files) {
     )
 
     colData(summarized_experiment)$condition <- factor(c(
-        "aso", "aso",
         "control", "control", "control", "control",
-        "control", "control", "control", "control"
+        "control", "control", "control", "control",
+        "aso", "aso"
     ))
 
     colData(summarized_experiment)$libType <- factor(rep("single-end", 10))
@@ -61,7 +61,7 @@ get_annotation <- function(fantom_tsv, gtf)
 }
 
 # ── Input files ────────────────────────────────────────────────────────────────
-fantom_promoter_tsv <- "expression.count.promoter.nAnT-iCAGE.ASO.human_dermal_fibroblasts.fixed.tsv"
+fantom_promoter_tsv <- "/data/budkina/CHASERR_pulldown/expression.count.promoter.nAnT-iCAGE.ASO.human_dermal_fibroblasts.fixed.tsv"
 gtf_file            <- "gencode.v49.annotation.gtf"
 
 # ── Build promoter GRanges from FANTOM peak annotation ────────────────────────
@@ -105,21 +105,30 @@ output_columns <- c(
 
 # ── ASO 1 ───────────────────────────────────────────────────────────
 bam_files_aso1 <- BamFileList(c(
-    "CNhi10491_150515_SN549_0169_AC6YUKACXX_NoIndex_L007_R1_001.F6-001-RNA-003-03G07-216C.ACC.10003.bam",
-    "CNhi10492_150515_SN549_0169_AC6YUKACXX_NoIndex_L008_R1_001.F6-001-RNA-003-03H07-75B7.GCT.10003.bam",
-    "CNhi10486_150515_SN549_0169_AC6YUKACXX_NoIndex_L002_R1_001.F6-001-RNA-003-04E03-FFF3.ACG.10003.bam",
-    "CNhi10488_150515_SN549_0169_AC6YUKACXX_NoIndex_L004_R1_001.F6-001-RNA-003-03E09-8DBE.ACG.10003.bam",
-    "CNhi10489_150515_SN549_0169_AC6YUKACXX_NoIndex_L005_R1_001.F6-001-RNA-003-01E03-4FC3.GCT.10003.bam",
-    "CNhi10494_150515_SN549_0170_BC6YUVACXX_NoIndex_L003_R1_001.F6-001-RNA-003-02E03-8F86.GCT.10003.bam",
-    "CNhi10495_150515_SN549_0170_BC6YUVACXX_NoIndex_L004_R1_001.F6-001-RNA-003-04E09-F9BA.TAC.10003.bam",
-    "CNhi10496_150515_SN549_0170_BC6YUVACXX_NoIndex_L005_R1_001.F6-001-RNA-003-02E09-3AEE.GCG.10003.bam",
-    "CNhi10497_150515_SN549_0170_BC6YUVACXX_NoIndex_L006_R1_001.F6-001-RNA-003-01E09-21E9.TAC.10003.bam",
-    "CNhi10497_150515_SN549_0170_BC6YUVACXX_NoIndex_L006_R1_001.F6-001-RNA-003-03E03-93F8.ATG.10003.bam"
+    "/data/budkina/ctd/fantom/CNhi10486_150515_SN549_0169_AC6YUKACXX_NoIndex_L002_R1_001.F6-001-RNA-003-04E03-FFF3.ACG.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10488_150515_SN549_0169_AC6YUKACXX_NoIndex_L004_R1_001.F6-001-RNA-003-03E09-8DBE.ACG.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10489_150515_SN549_0169_AC6YUKACXX_NoIndex_L005_R1_001.F6-001-RNA-003-01E03-4FC3.GCT.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10494_150515_SN549_0170_BC6YUVACXX_NoIndex_L003_R1_001.F6-001-RNA-003-02E03-8F86.GCT.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10495_150515_SN549_0170_BC6YUVACXX_NoIndex_L004_R1_001.F6-001-RNA-003-04E09-F9BA.TAC.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10496_150515_SN549_0170_BC6YUVACXX_NoIndex_L005_R1_001.F6-001-RNA-003-02E09-3AEE.GCG.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10497_150515_SN549_0170_BC6YUVACXX_NoIndex_L006_R1_001.F6-001-RNA-003-01E09-21E9.TAC.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10497_150515_SN549_0170_BC6YUVACXX_NoIndex_L006_R1_001.F6-001-RNA-003-03E03-93F8.ATG.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10491_150515_SN549_0169_AC6YUKACXX_NoIndex_L007_R1_001.F6-001-RNA-003-03G07-216C.ACC.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10492_150515_SN549_0169_AC6YUKACXX_NoIndex_L008_R1_001.F6-001-RNA-003-03H07-75B7.GCT.10003.bam"
 ))
 
 sig_deu_aso1 <- get_dex_results(promoter_regions, bam_files_aso1)
 results_table_aso1 <- sig_deu_aso1[, output_columns]
 results_table_aso1[, "genomicData.start"] <- results_table_aso1[, "genomicData.start"] - 1
+results_table_aso1[, "genomicData.end"] <- results_table_aso1[, "genomicData.end"]
+
+results_table_aso1 <- results_table_aso1 %>%
+  mutate(featureID = sub("^E", "P", featureID))
+
+results_table_aso1$log2fold_aso_control <- - results_table_aso1$log2fold_control_aso
+
+rownames(results_table_aso1) <- paste0(results_table_aso1$groupID, ":", results_table_aso1$featureID)
+
 write.table(
     file      = "aso1_dex_results.csv",
     results_table_aso1,
@@ -131,21 +140,30 @@ write.table(
 
 # ── ASO 3 ───────────────────────────────────────────────────────────
 bam_files_aso3 <- BamFileList(c(
-    "CNhi10487_150515_SN549_0169_AC6YUKACXX_NoIndex_L003_R1_001.F6-001-RNA-003-03F07-416D.ACC.10003.bam",
-    "CNhi10495_150515_SN549_0170_BC6YUVACXX_NoIndex_L004_R1_001.F6-001-RNA-003-03E07-93DC.ACG.10003.bam",
-    "CNhi10486_150515_SN549_0169_AC6YUKACXX_NoIndex_L002_R1_001.F6-001-RNA-003-04E03-FFF3.ACG.10003.bam",
-    "CNhi10488_150515_SN549_0169_AC6YUKACXX_NoIndex_L004_R1_001.F6-001-RNA-003-03E09-8DBE.ACG.10003.bam",
-    "CNhi10489_150515_SN549_0169_AC6YUKACXX_NoIndex_L005_R1_001.F6-001-RNA-003-01E03-4FC3.GCT.10003.bam",
-    "CNhi10494_150515_SN549_0170_BC6YUVACXX_NoIndex_L003_R1_001.F6-001-RNA-003-02E03-8F86.GCT.10003.bam",
-    "CNhi10495_150515_SN549_0170_BC6YUVACXX_NoIndex_L004_R1_001.F6-001-RNA-003-04E09-F9BA.TAC.10003.bam",
-    "CNhi10496_150515_SN549_0170_BC6YUVACXX_NoIndex_L005_R1_001.F6-001-RNA-003-02E09-3AEE.GCG.10003.bam",
-    "CNhi10497_150515_SN549_0170_BC6YUVACXX_NoIndex_L006_R1_001.F6-001-RNA-003-01E09-21E9.TAC.10003.bam",
-    "CNhi10497_150515_SN549_0170_BC6YUVACXX_NoIndex_L006_R1_001.F6-001-RNA-003-03E03-93F8.ATG.10003.bam"
+    "/data/budkina/ctd/fantom/CNhi10486_150515_SN549_0169_AC6YUKACXX_NoIndex_L002_R1_001.F6-001-RNA-003-04E03-FFF3.ACG.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10488_150515_SN549_0169_AC6YUKACXX_NoIndex_L004_R1_001.F6-001-RNA-003-03E09-8DBE.ACG.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10489_150515_SN549_0169_AC6YUKACXX_NoIndex_L005_R1_001.F6-001-RNA-003-01E03-4FC3.GCT.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10494_150515_SN549_0170_BC6YUVACXX_NoIndex_L003_R1_001.F6-001-RNA-003-02E03-8F86.GCT.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10495_150515_SN549_0170_BC6YUVACXX_NoIndex_L004_R1_001.F6-001-RNA-003-04E09-F9BA.TAC.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10496_150515_SN549_0170_BC6YUVACXX_NoIndex_L005_R1_001.F6-001-RNA-003-02E09-3AEE.GCG.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10497_150515_SN549_0170_BC6YUVACXX_NoIndex_L006_R1_001.F6-001-RNA-003-01E09-21E9.TAC.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10497_150515_SN549_0170_BC6YUVACXX_NoIndex_L006_R1_001.F6-001-RNA-003-03E03-93F8.ATG.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10487_150515_SN549_0169_AC6YUKACXX_NoIndex_L003_R1_001.F6-001-RNA-003-03F07-416D.ACC.10003.bam",
+    "/data/budkina/ctd/fantom/CNhi10495_150515_SN549_0170_BC6YUVACXX_NoIndex_L004_R1_001.F6-001-RNA-003-03E07-93DC.ACG.10003.bam"
 ))
 
 sig_deu_aso3 <- get_dex_results(promoter_regions, bam_files_aso3)
 results_table_aso3 <- sig_deu_aso3[, output_columns]
 results_table_aso3[, "genomicData.start"] <- results_table_aso3[, "genomicData.start"] - 1
+results_table_aso3[, "genomicData.end"] <- results_table_aso3[, "genomicData.end"]
+
+results_table_aso3 <- results_table_aso3 %>%
+  mutate(featureID = sub("^E", "P", featureID))
+
+results_table_aso3$log2fold_aso_control <- - results_table_aso3$log2fold_control_aso
+
+rownames(results_table_aso3) <- paste0(results_table_aso3$groupID, ":", results_table_aso3$featureID)
+
 write.table(
     file      = "aso3_dex_results.csv",
     results_table_aso3,

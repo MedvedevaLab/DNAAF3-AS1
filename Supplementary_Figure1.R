@@ -23,7 +23,6 @@ library(ggbreak)
 
 library(UpSetR)
 
-
 panel_theme <- theme(
     panel.border       = element_blank(),
     panel.grid.major   = element_blank(),
@@ -55,11 +54,9 @@ get_tss_dist <- function(ctd_himorna, corr_type, label, txdb)
 
   p <- plotDistToTSS(peakAnno, distanceColumn = "distanceToTSS", xlab = "", ylab = corr_type) +
   theme_bw() +
+  panel_theme +
   # scale_fill_brewer(palette = "Set2", guide = guide_legend(reverse = TRUE), drop = FALSE) +
-  theme(panel.border = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        axis.title.x = element_blank(),
+  theme(axis.title.x = element_blank(),
         axis.text.x = element_text(size = 6, vjust = 0.5, hjust = 1),
         legend.title = element_text(size = 6),
         legend="bottom",
@@ -79,8 +76,9 @@ gtf_file <- "gencode.v49.annotation.gtf"
 txdb     <- makeTxDbFromGFF(gtf_file)
 
 # ── Panel A: Gene tracks ───────────────────────────────────────────────────────
-# pyGenomeTracks --tracks plot_supplementary.ini --region chr19:55158653-55178653 -o SupplementaryFigure1A.png --plotWidth 120 --dpi 130
-gene_track_img  <- readPNG("Figure1A.png") # Supplementary
+
+# pyGenomeTracks --tracks plot_supplementary.ini --region chr7:4524000-4536000 -o SupplementaryFigure1A.png --plotWidth 35 --dpi 300
+gene_track_img  <- readPNG("SupplementaryFigure1A.png") # 
 gene_track_grob <- rasterGrob(gene_track_img,
     interpolate = TRUE, width = unit(4, "in"), height = unit(1.5, "in"))
 
@@ -90,17 +88,14 @@ panel_a <- ggplot(geom = "blank") +
     panel_theme +
     labs(tag = "A")
 
-
-gene_track_img  <- readPNG("alignment.png") #
-gene_track_grob <- rasterGrob(gene_track_img,
-    interpolate = TRUE, width = unit(4, "in"), height = unit(1.5, "in"))
-
-panel_b <- ggplot(geom = "blank") +
-    annotation_custom(gene_track_grob) +
-    theme_bw() +
-    panel_theme +
-    labs(tag = "B")
-
+# gene_track_img  <- readPNG("alignment.png") #
+# gene_track_grob <- rasterGrob(gene_track_img,
+#     interpolate = TRUE, width = unit(4, "in"), height = unit(1.5, "in"))
+# panel_b <- ggplot(geom = "blank") +
+#     annotation_custom(gene_track_grob) +
+#     theme_bw() +
+#     panel_theme +
+#     labs(tag = "B")
 
 # B. Himorna peaks counts
 # Read himorna peaks
@@ -117,7 +112,7 @@ hm_counts$Var1   <- factor(hm_counts$Var1,
 
 hm_counts <- as.data.frame(tidyr::complete(hm_counts, Var2, Var1))
 
-panel_c <- ggplot(hm_counts, aes(x = Var1, y = Freq, fill = Var2)) +
+panel_b <- ggplot(hm_counts, aes(x = Var1, y = Freq, fill = Var2)) +
   theme_bw() +
   geom_bar(position="dodge", stat="identity") +
   scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
@@ -135,8 +130,8 @@ panel_c <- ggplot(hm_counts, aes(x = Var1, y = Freq, fill = Var2)) +
   legend.text = element_text(size = 5),
   plot.title = element_text(size = 6, hjust = 0.5),
   plot.tag = element_text(size = 8, face="plain")) +
-  guides(fill=guide_legend(ncol = 1)) +
-  labs(title = "Peaks correlated with DNAAF3-AS1", x = "", y = "Number of peaks", fill = "", tag = "C") +
+  guides(fill=guide_legend(ncol = 2)) +
+  labs(title = "Peaks correlated with DNAAF3-AS1", x = "", y = "Number of peaks", fill = "", tag = "B") +
   coord_flip()
 
 
@@ -149,19 +144,21 @@ himorna_peaks_neg_cor <- himorna_peaks[himorna_peaks$corr < 0, ]
 rownames(himorna_peaks_pos_cor) <- himorna_peaks_pos_cor$X
 rownames(himorna_peaks_neg_cor) <- himorna_peaks_neg_cor$X
 
-p31 <-  get_tss_dist(himorna_peaks_pos_cor, 'rho > 0', "D", txdb) 
+p31 <-  get_tss_dist(himorna_peaks_pos_cor, 'rho > 0', "C", txdb) 
 p32 <-  get_tss_dist(himorna_peaks_neg_cor, 'rho < 0', "", txdb) 
-panel_d <- ggarrange(p31, p32, ncol = 1, nrow = 2, common.legend = TRUE, legend="bottom")
+panel_c <- ggarrange(p31, p32, ncol = 1, nrow = 2, common.legend = TRUE, legend="bottom")
 
 dex_results_aso1      <- read.csv("aso1_dex_results.csv", sep = "\t")
-dex_results_aso1      <- dex_results_aso1[!is.na(dex_results_aso1$log2fold_control_aso), ]
-dex_results_aso1_up   <- dplyr::filter(dex_results_aso1, log2fold_control_aso < 0)
-dex_results_aso1_down <- dplyr::filter(dex_results_aso1, log2fold_control_aso > 0)
+dex_results_aso1$log2fold_aso_control <- - dex_results_aso1$log2fold_control_aso
+dex_results_aso1      <- dex_results_aso1[!is.na(dex_results_aso1$log2fold_aso_control), ]
+dex_results_aso1_up   <- dplyr::filter(dex_results_aso1, log2fold_aso_control > 0)
+dex_results_aso1_down <- dplyr::filter(dex_results_aso1, log2fold_aso_control < 0)
 
 dex_results_aso3      <- read.csv("aso3_dex_results.csv", sep = "\t")
-dex_results_aso3      <- dex_results_aso3[!is.na(dex_results_aso3$log2fold_control_aso), ]
-dex_results_aso3_up   <- dplyr::filter(dex_results_aso3, log2fold_control_aso < 0)
-dex_results_aso3_down <- dplyr::filter(dex_results_aso3, log2fold_control_aso > 0)
+dex_results_aso3$log2fold_aso_control <- - dex_results_aso3$log2fold_control_aso
+dex_results_aso3      <- dex_results_aso3[!is.na(dex_results_aso3$log2fold_aso_control), ]
+dex_results_aso3_up   <- dplyr::filter(dex_results_aso3, log2fold_aso_control > 0)
+dex_results_aso3_down <- dplyr::filter(dex_results_aso3, log2fold_aso_control < 0)
 
 df <- data.frame(c('ASO_01', 'ASO_01', 'ASO_03', 'ASO_03'),
 c('up', 'down', 'up', 'down'),
@@ -169,7 +166,7 @@ c(dim(dex_results_aso1_up)[1], dim(dex_results_aso1_down)[1], dim(dex_results_as
 
 colnames(df) <- c('aso', 'promoter', 'N')
 df$promoter <- factor(df$promoter, levels = c('up', 'down'))
-panel_e <- ggplot(df, aes(x = aso, y = N, fill = promoter)) +
+panel_d <- ggplot(df, aes(x = aso, y = N, fill = promoter)) +
   theme_bw() +
   geom_bar(position="dodge", stat="identity") +
   scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
@@ -186,8 +183,8 @@ panel_e <- ggplot(df, aes(x = aso, y = N, fill = promoter)) +
   legend.text = element_text(size = 5),
   plot.title = element_text(size = 6, hjust = 0.5),
   plot.tag = element_text(size = 8, face="plain")) +
-  guides(fill=guide_legend(ncol = 1)) +
-  labs(x = "", y = "Number of promoters", fill = "", tag = "E")
+  guides(fill=guide_legend(ncol = 2)) +
+  labs(x = "", y = "Number of promoters", fill = "", tag = "D")
 
 coords_up <- dex_results_aso1_up[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "genomicData.strand")]
 colnames(coords_up) <- c("seqnames", "start", "end", "strand")
@@ -237,7 +234,7 @@ annotation$Feature <- factor(annotation$Feature, levels = c("Promoter", "5' UTR"
 ))
 
 cols <- rev(c("#999999", "#FF7F00", "#4DAF4A", "#984EA3", "#c4e8c3", "#e4cae8", "#FFFF33" ))
-panel_f <- ggplot(annotation, aes(x = Type, y = Frequency, fill =  Feature)) + 
+panel_e <- ggplot(annotation, aes(x = Type, y = Frequency, fill =  Feature)) + 
   facet_wrap(~ASO) +
   theme_bw() + 
   geom_bar(position="stack", stat="identity") +
@@ -245,16 +242,17 @@ panel_f <- ggplot(annotation, aes(x = Type, y = Frequency, fill =  Feature)) +
   theme(panel.border = element_blank(),
       panel.grid.major = element_blank(),
       panel.grid.minor = element_blank(),
+      strip.background = element_blank(),
       axis.title.x = element_blank(),
       axis.text.x = element_text(size = 6, vjust = 0.5, hjust = 1),
       legend.title = element_text(size = 6),
-      legend="bottom",
+      legend = "bottom",
       axis.text.y = element_text(size = 6),
       legend.text = element_text(size = 6),
       plot.title = element_text(size = 6),
       legend.key.size = unit(0.2, "cm"),
       plot.tag = element_text(size = 6, face="plain")) + 
-      labs(title = "Differential usage promoters annotation", tag = "F")
+      labs(title = "Differential usage promoters annotation", tag = "E")
 
 anno_df_03_up        <- peak_anno_up_aso3@anno
 anno_df_03_up$Type   <- "up"
@@ -268,7 +266,7 @@ anno_df_combined             <- dplyr::filter(anno_df_combined, annotation %in% 
 
 sankey_df <- anno_df_combined %>% make_long(annotation, Type)
 
-panel_g <- ggplot(sankey_df, aes(x = x, next_x = next_x, node = node,
+panel_f <- ggplot(sankey_df, aes(x = x, next_x = next_x, node = node,
                                   next_node = next_node, fill = factor(node), label = node)) +
     geom_sankey() +
     geom_sankey_label(size = 3, color = "white", fill = "gray40") +
@@ -277,16 +275,16 @@ panel_g <- ggplot(sankey_df, aes(x = x, next_x = next_x, node = node,
     theme(axis.title.x       = element_blank(),
           axis.ticks.x       = element_blank(),
           axis.text.x        = element_blank()) +
+    guides(fill=guide_legend(ncol = 3)) +
     scale_fill_manual(values = c("#4DAF4A", "#984EA3", "#999999", "#E41A1C", "#377EB8")) +
-    labs(title = "Promoter annotation ASO_03", fill = "Feature", tag = "G")
+    labs(title = "Promoter annotation ASO_03", fill = "Feature", tag = "F")
 
 figure1_grob <- arrangeGrob(
-    panel_a, panel_b, panel_c, panel_d, panel_e, panel_f, panel_g,
+    panel_a, panel_b, panel_c, panel_d, panel_e, panel_f,
     ncol = 2, nrow = 4,
-    layout_matrix = rbind(c(1, 2, 3), c(4, 4, 5), c(6, 6, 7), c(6, 6, 7))
+    layout_matrix = rbind(c(1, 1, 2), c(3, 3, 4), c(5, 5, 6), c(5, 5, 6))
 )
 ggsave("Supplementary_Figure1.png", plot = figure1_grob, width = 18, height = 24, units = "cm")
-
 
 # stat_pos <- peakAnno_up@annoStat
 # stat_pos$Type <- 'Up'

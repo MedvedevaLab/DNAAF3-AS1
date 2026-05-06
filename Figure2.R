@@ -1,5 +1,4 @@
 library(ggplot2)
-library(magick)
 library(ggbreak)
 library(ggpubr)
 library(ChIPseeker)
@@ -54,6 +53,8 @@ get_annotation <- function(bed, txdb)
 }
 
 # A. Metagene 
+
+
 img <- readPNG('Figure2A/Figure2A1.png')
 g11 <- rasterGrob(img,
   interpolate=TRUE, width = unit(3.5,"in"), height=unit(2.2,"in"))
@@ -61,18 +62,11 @@ g11 <- rasterGrob(img,
 p11 <- ggplot(geom="blank") +
   annotation_custom(g11) + 
   theme_bw() + 
-  theme(panel.border = element_blank(),
-      panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank(),
+  panel_theme + 
+  theme(
       axis.title.x = element_blank(),
-      axis.text.x = element_text(size = 6, vjust = 0.5, hjust = 1),
-      legend.title = element_text(size = 6),
-      legend="bottom",
-      axis.text.y = element_text(size = 6),
-      plot.title = element_text(size = 6),
       legend.key.size = unit(0.2, "cm"),
-      legend.text = element_text(size = 5),
-      plot.tag = element_text(size = 6, face="plain")) + labs(tag = "A")
+      legend.text = element_text(size = 5)) + labs(tag = "A")
 
 img <- readPNG('Figure2A/Figure2A2.png')
 g12 <- rasterGrob(img,
@@ -81,25 +75,18 @@ g12 <- rasterGrob(img,
 p12 <- ggplot(geom="blank") +
   annotation_custom(g12) + 
   theme_bw() +
-  theme(panel.border = element_blank(),
-      panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank(),
+  panel_theme +
+  theme(
       axis.title.x = element_blank(),
-      axis.text.x = element_text(size = 6, vjust = 0.5, hjust = 1),
-      legend.title = element_text(size = 6),
-      legend="bottom",
-      axis.text.y = element_text(size = 6),
-      plot.title = element_text(size = 6),
       legend.key.size = unit(0.2, "cm"),
-      legend.text = element_text(size = 5),
-      plot.tag = element_text(size = 6, face="plain")) + labs(tag = "")
+      legend.text = element_text(size = 5)) + labs(tag = "")
 
 # B. Read ChIP-seq peaks
-aso_01 <- read.csv('/data/budkina/himorna_chipseq_data/old_processing/all_peaks/omnipeak/C-9_.peak', sep = '\t', header = F)
-aso_03 <- read.csv('/data/budkina/himorna_chipseq_data/old_processing/all_peaks/omnipeak/C-10.peak', sep = '\t', header = F)
+aso_01 <- read.csv('/data/budkina/himorna_chipseq_data/old_processing/all_peaks/macs3_peaks/C-9_/C-9__peaks.broadPeak', sep = '\t', header = F)
+aso_03 <- read.csv('/data/budkina/himorna_chipseq_data/old_processing/all_peaks/macs3_peaks/C-10/C-10_peaks.broadPeak', sep = '\t', header = F)
 
-nca_01 <- read.csv('/data/budkina/himorna_chipseq_data/old_processing/all_peaks/omnipeak/C-19.peak', sep = '\t', header = F)
-nca_02 <- read.csv('/data/budkina/himorna_chipseq_data/old_processing/all_peaks/omnipeak/C-20.peak', sep = '\t', header = F)
+nca_01 <- read.csv('/data/budkina/himorna_chipseq_data/old_processing/all_peaks/macs3_peaks/C-19/C-19_peaks.broadPeak', sep = '\t', header = F)
+nca_02 <- read.csv('/data/budkina/himorna_chipseq_data/old_processing/all_peaks/macs3_peaks/C-20/C-20_peaks.broadPeak', sep = '\t', header = F)
 
 peak_num <- data.frame(c('ASO_01', 'ASO_03', 'Control1', 'Control2'), 
   c(dim(aso_01)[1], dim(aso_03)[1], dim(nca_01)[1], dim(nca_02)[1]),
@@ -115,7 +102,7 @@ p2 <- ggplot(peak_num, aes(x = experiment, y = n_peaks)) +
     guides(fill = guide_legend(ncol = 3)) +
     labs(title = "", x = "Experiment", y = "Number of peaks", tag = "B")
 
-diffbind_results <- read.csv('/data/budkina/himorna_chipseq_data/old_processing/DiffBind_results/omnipeak/CTD-2587H24.5_H3K36me3_differential_peaks.csv', sep = '\t')
+diffbind_results <- read.csv('/data/budkina/himorna_chipseq_data/old_processing/DiffBind_results/macs_broad/CTD-2587H24.5_H3K36me3_differential_peaks.csv', sep = '\t')
 diffbind_sig <- diffbind_results[diffbind_results$FDR < 0.05,] # & abs(diffbind_results$Fold) > 1
 
 diffbind_sig$significance <- "Unchanged"

@@ -57,6 +57,7 @@ seurat_object$celltype <- factor(seurat_object$celltype,
 cols <- rev(c("#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F", "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#D37295", "#499894", "#A0CBE8", "#BAB0AC"))
 
 # UMAPs with annotation
+# 
 panel_a <- DimPlot(seurat_object, reduction = "umap", group.by = "celltype", label = FALSE, repel = TRUE, raster=FALSE) + 
 panel_theme +
   theme(plot.title = element_blank()) + 
@@ -75,7 +76,7 @@ panel_b1 <- VlnPlot(
         axis.title.x = element_blank(),
         axis.text.x = element_blank()) +
   scale_fill_manual(values = rev(cols), guide = guide_legend(reverse = TRUE), drop = FALSE) +
-  labs(title = "DNAAF3-AS1", tag = "")
+  labs(title = "DNAAF3-AS1", tag = "B")
 
 panel_b2 <- VlnPlot(
   seurat_object, group.by = "celltype",
@@ -89,16 +90,33 @@ panel_b2 <- VlnPlot(
   scale_fill_manual(values = rev(cols), guide = guide_legend(reverse = TRUE), drop = FALSE) +
   labs(title = "DNAAF3", tag = "")
 
-p <- ggarrange(panel_a, panel_b1, panel_b2, ncol = 1, nrow = 3, common.legend = TRUE, legend="bottom")
-ggsave("test.png", plot = p, width = 10, height = 20, units = "cm")
 
 seurat_object <- readRDS('testis_promoter.rds')
 
-panel_c <- FeaturePlot(seurat_object, paste0("add_module_score", 2), pt.size = 0.5, reduction = "umap") + 
-  scale_color_gradientn(colors = rev(brewer.pal(11, "Spectral"))) +
+Idents(object = seurat_object) <- seurat_object@meta.data$celltype
+seurat_object$celltype <- factor(seurat_object$celltype, 
+                        levels = c("SSCs", "Differentiating S'gonia", "Early primary S'cytes",
+                          "Late primary S'cytes", "Round S'tids", "Elongated S'tids", "Sperm1",
+                          "Sperm2", "Sperm3", "Macrophage", "Endothelial cells", "Myoid cells",
+                          "Sertoli cells"))
+
+panel_b3 <- VlnPlot(
+  seurat_object, group.by = "celltype",
+  features = paste0("add_module_score", 2),
+  alpha = 0, log = TRUE) + 
   panel_theme +
-  theme(text = element_text(size = 6)) +
-  labs(title = "", tag = "C")
+  theme(strip.text.x = element_text(size = 6),
+        strip.background = element_blank(),
+        legend.position="none",
+        axis.title.x = element_blank()) +
+  scale_fill_manual(values = rev(cols), guide = guide_legend(reverse = TRUE), drop = FALSE) +
+  labs(title = "H3K36me3 in promoter, HiMoRNA rho < -0.5", tag = "C")
+
+
+p <- ggarrange(panel_a, panel_b1, panel_b2, panel_b3, ncol = 1, nrow = 4, common.legend = TRUE, legend="bottom")
+ggsave("test.png", plot = p, width = 10, height = 20, units = "cm")
+
+
 
 df1 <- read.csv("rnachrom1.csv",sep = ',')
 df1$experiment <- 'iMARGI1'
@@ -161,7 +179,6 @@ himorna_peaks <- read.csv("ENSG00000267577.tsv", sep = "\t")
 himorna_peaks <- dplyr::filter(himorna_peaks, hm == "H3K36me3")
 himorna_contacts <- dplyr::filter(himorna_peaks, gene_ens %in% target_genes)
 
-
 fantom <- read.csv('DESeq2_genes_ASO_all.tsv', sep = '\t')
 aso01 <- dplyr::filter(fantom, perturb_id == 'ASO_G0267577_01')
 aso01 <- aso01[aso01$fdr < 0.05, ]
@@ -177,7 +194,7 @@ panel_d <- ggplot(aso01_contacts, aes(x = log2FC,
   label = ifelse(in_himorna, geneSymbol, NA),
   color = in_himorna)) +
   geom_point(shape = 1) + 
-  geom_text_repel( color = 'black', alpha = 1,  hjust = 0, vjust = 0, size = 4, max.overlaps = 15) +
+  geom_text_repel( color = 'black', alpha = 1,  hjust = 0, vjust = 0, size = 4, max.overlaps = 8) +
   scale_color_manual(values = colors, name = "") +
   theme_bw() +
   panel_theme +
@@ -291,9 +308,9 @@ panel_e <- ggplot(heatmap_long, aes(x = condition, y = row_label, color = log2fo
 
 
 figure3_grob <- arrangeGrob(
-  p, panel_c, panel_d, panel_e, #  panel_e1,
+  p, panel_d, panel_e, #  panel_e1,
   ncol = 2, nrow = 3,
-  layout_matrix = rbind(c(1, 3), c(1, 4), c(2, 4))
+  layout_matrix = rbind(c(1, 2), c(1, 3), c(1, 3))
 )
 
-ggsave("Figure3.png", plot = figure3_grob, width = 16, height = 26, units = "cm")
+ggsave("Figure3.png", plot = figure3_grob, width = 16, height = 20, units = "cm")

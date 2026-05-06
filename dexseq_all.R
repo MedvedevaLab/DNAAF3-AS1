@@ -39,11 +39,11 @@ get_dex_results <- function(promoter_regions, bam_files) {
     dexseq_results_df  <- as.data.frame(dexseq_results)
 
     per_gene_qvalues <- perGeneQValue(dexseq_results)
-    deu_genes        <- names(per_gene_qvalues[per_gene_qvalues < 1.1])
+    deu_genes        <- names(per_gene_qvalues[per_gene_qvalues <= 0.05])
     print(length(deu_genes))
 
     dexseq_results_deu_genes <- dplyr::filter(dexseq_results_df, groupID %in% deu_genes)
-    sig_exon_results         <- dplyr::filter(dexseq_results_deu_genes, padj < 1.1)
+    sig_exon_results         <- dplyr::filter(dexseq_results_deu_genes, padj <= 1)
 
     return(sig_exon_results)
 }
@@ -139,30 +139,40 @@ write.table(
     sep       = "\t"
 )
 
-
-results_table_aso1      <- read.csv("aso1_dex_results_not_sig.csv", sep = "\t")
+results_table_aso1 <- read.csv("aso1_dex_results_not_sig.csv", sep = "\t")
 
 smyd_aso1 <- results_table_aso1[results_table_aso1$groupID == 'ENSG00000185420',
-    c("genomicData.seqnames", "genomicData.start", "genomicData.end", "featureID", "padj" , "genomicData.strand", "log2fold_aso_control")]
+    c("genomicData.seqnames", "genomicData.start", "genomicData.end", "featureID", "padj" , "genomicData.strand", "log2fold_control_aso")]
 smyd_aso1$featureID <- ifelse(smyd_aso1$padj < 0.05, paste0(smyd_aso1$featureID, "*"), smyd_aso1$featureID)
-smyd_aso1$padj <- as.numeric(smyd_aso1$padj > 0.05)
-smyd_aso1_up <- smyd_aso1[smyd_aso1$log2fold_aso_control > 0,]
-smyd_aso1_up$log2fold_aso_control <- NULL
-smyd_aso1_down <- smyd_aso1[smyd_aso1$log2fold_aso_control < 0,]
-smyd_aso1_down$log2fold_aso_control <- NULL
+smyd_aso1$plot_color <- ifelse(smyd_aso1$padj < 0.05 & smyd_aso1$log2fold_control_aso > 0, 1,
+                        ifelse(smyd_aso1$padj < 0.05 & smyd_aso1$log2fold_control_aso < 0, -1,
+                        ifelse(smyd_aso1$padj >= 0.05 & smyd_aso1$log2fold_control_aso > 0, 0.3,
+                        ifelse(smyd_aso1$padj >= 0.05 & smyd_aso1$log2fold_control_aso < 0, -0.3, NA))))
+
+smyd_aso1 <- smyd_aso1[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "featureID", "plot_color", "genomicData.strand")]
 
 write.table(
-    file      = "smyd3_aso_01_up.bed6",
-    smyd_aso1_up,
+    file      = "smyd3_aso_01.bed6",
+    smyd_aso1,
     quote     = FALSE,
     row.names = FALSE,
     col.names = FALSE,
     sep       = "\t"
 )
 
+ext1_aso1 <- results_table_aso1[results_table_aso1$groupID == 'ENSG00000182197',
+    c("genomicData.seqnames", "genomicData.start", "genomicData.end", "featureID", "padj" , "genomicData.strand", "log2fold_control_aso")]
+ext1_aso1$featureID <- ifelse(ext1_aso1$padj < 0.05, paste0(ext1_aso1$featureID, "*"), ext1_aso1$featureID)
+ext1_aso1$plot_color <- ifelse(ext1_aso1$padj < 0.05 & ext1_aso1$log2fold_control_aso > 0, 1,
+                        ifelse(ext1_aso1$padj < 0.05 & ext1_aso1$log2fold_control_aso < 0, -1,
+                        ifelse(ext1_aso1$padj >= 0.05 & ext1_aso1$log2fold_control_aso > 0, 0.3,
+                        ifelse(ext1_aso1$padj >= 0.05 & ext1_aso1$log2fold_control_aso < 0, -0.3, NA))))
+
+ext1_aso1 <- ext1_aso1[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "featureID", "plot_color", "genomicData.strand")]
+
 write.table(
-    file      = "smyd3_aso_01_down.bed6",
-    smyd_aso1_down,
+    file      = "ext1_aso_01.bed6",
+    ext1_aso1,
     quote     = FALSE,
     row.names = FALSE,
     col.names = FALSE,
@@ -209,26 +219,37 @@ write.table(
 results_table_aso3      <- read.csv("aso3_dex_results_not_sig.csv", sep = "\t")
 
 smyd_aso3 <- results_table_aso3[results_table_aso3$groupID == 'ENSG00000185420',
-    c("genomicData.seqnames", "genomicData.start", "genomicData.end", "featureID", "padj" , "genomicData.strand", "log2fold_aso_control")]
+    c("genomicData.seqnames", "genomicData.start", "genomicData.end", "featureID", "padj" , "genomicData.strand", "log2fold_control_aso")]
 smyd_aso3$featureID <- ifelse(smyd_aso3$padj < 0.05, paste0(smyd_aso3$featureID, "*"), smyd_aso3$featureID)
-smyd_aso3$padj <- as.numeric(smyd_aso3$padj > 0.05)
-smyd_aso3_up <- smyd_aso3[smyd_aso3$log2fold_aso_control > 0,]
-smyd_aso3_up$log2fold_aso_control <- NULL
-smyd_aso3_down <- smyd_aso3[smyd_aso3$log2fold_aso_control < 0,]
-smyd_aso3_down$log2fold_aso_control <- NULL
+smyd_aso3$plot_color <- ifelse(smyd_aso3$padj < 0.05 & smyd_aso3$log2fold_control_aso > 0,  1,
+                        ifelse(smyd_aso3$padj < 0.05 & smyd_aso3$log2fold_control_aso < 0, -1,
+                        ifelse(smyd_aso3$padj >= 0.05 & smyd_aso3$log2fold_control_aso > 0,  0.3,
+                        ifelse(smyd_aso3$padj >= 0.05 & smyd_aso3$log2fold_control_aso < 0, -0.3, NA))))
+
+smyd_aso3 <- smyd_aso3[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "featureID", "plot_color", "genomicData.strand")]
 
 write.table(
-    file      = "smyd3_aso_03_up.bed6",
-    smyd_aso3_up,
+    file      = "smyd3_aso_03.bed6",
+    smyd_aso3,
     quote     = FALSE,
     row.names = FALSE,
     col.names = FALSE,
     sep       = "\t"
 )
 
+ext1_aso3 <- results_table_aso3[results_table_aso3$groupID == 'ENSG00000182197',
+    c("genomicData.seqnames", "genomicData.start", "genomicData.end", "featureID", "padj" , "genomicData.strand", "log2fold_control_aso")]
+ext1_aso3$featureID <- ifelse(ext1_aso3$padj < 0.05, paste0(ext1_aso3$featureID, "*"), ext1_aso3$featureID)
+ext1_aso3$plot_color <- ifelse(ext1_aso3$padj < 0.05 & ext1_aso3$log2fold_control_aso > 0, 1,
+                        ifelse(ext1_aso3$padj < 0.05 & ext1_aso3$log2fold_control_aso < 0, -1,
+                        ifelse(ext1_aso3$padj >= 0.05 & ext1_aso3$log2fold_control_aso > 0, 0.3,
+                        ifelse(ext1_aso3$padj >= 0.05 & ext1_aso3$log2fold_control_aso < 0, -0.3, NA))))
+
+ext1_aso3 <- ext1_aso3[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "featureID", "plot_color", "genomicData.strand")]
+
 write.table(
-    file      = "smyd3_aso_03_down.bed6",
-    smyd_aso3_down,
+    file      = "ext1_aso_03.bed6",
+    ext1_aso3,
     quote     = FALSE,
     row.names = FALSE,
     col.names = FALSE,
