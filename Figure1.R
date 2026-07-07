@@ -4,21 +4,13 @@ library(ChIPseeker)
 library(png)
 library(gridExtra)
 library(reshape2)
-library(AnnotationHub)
-library(biomaRt)
-library(scales)
-library(RColorBrewer)
-library(stringr)
-library(GenomeInfoDb)
 library(dplyr)
-library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 library(ChIPpeakAnno)
 library(grid)
-library(ggsankey)
-library(tidyr)
 library(clusterProfiler)
+library(org.Hs.eg.db)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 
-# ── Shared theme elements ──────────────────────────────────────────────────────
 panel_theme <- theme(
     panel.border       = element_blank(),
     panel.grid.major   = element_blank(),
@@ -37,8 +29,6 @@ panel_theme <- theme(
     legend.spacing.y   = unit(2, "cm")
 )
 
-################################ Functions ################################
-
 # Annotate genomic peaks from a data frame of coordinates
 get_annotation <- function(peak_data, correlation_label, txdb) {
     coords <- peak_data[, c("chrom", "start", "end")]
@@ -51,12 +41,23 @@ get_annotation <- function(peak_data, correlation_label, txdb) {
     return(peak_annotation)
 }
 
-################################ Main ################################
+enrich_go_bp <- function(genes, universe) {
+    enrichGO(
+        gene          = genes,
+        universe      = universe,
+        OrgDb         = org.Hs.eg.db,
+        keyType       = "ENSEMBL",
+        ont           = "BP",
+        pAdjustMethod = "BH",
+        pvalueCutoff  = 0.05,
+        qvalueCutoff  = 0.05
+    )
+}
 
 gtf_file <- "gencode.v49.annotation.gtf"
 txdb     <- makeTxDbFromGFF(gtf_file)
 
-# ── Panel A: Gene tracks ───────────────────────────────────────────────────────
+# Panel A: Gene tracks
 # pyGenomeTracks --tracks plot.ini --region chr19:55158653-55178653 -o Figure1A.png --plotWidth 120 --dpi 130
 gene_track_img  <- readPNG("Figure1A.png")
 gene_track_grob <- rasterGrob(gene_track_img,
@@ -68,191 +69,132 @@ panel_a <- ggplot(geom = "blank") +
     panel_theme +
     labs(tag = "A")
 
-# ── Panel B: HiMoRNA peaks annotation ─────────────────────────────────────────
-himorna_peaks <- read.csv("ENSG00000267577.tsv", sep = "\t")
-himorna_peaks <- dplyr::filter(himorna_peaks, hm == "H3K36me3")
+# Panel B: Expression in tissues
+# https://www.gtexportal.org/home/downloads/adult-gtex%23qtl
+df <- read.table('GTEx_Analysis_2025-08-22_v11_RNASeQCv2.4.3_gene_median_tpm.gct', sep='\t', header=TRUE, skip=2,
+                 check.names=FALSE, stringsAsFactors=FALSE)
 
-himorna_peaks_pos_cor <- himorna_peaks[himorna_peaks$corr > 0, ]
-himorna_peaks_neg_cor <- himorna_peaks[himorna_peaks$corr < 0, ]
-rownames(himorna_peaks_pos_cor) <- himorna_peaks_pos_cor$X
-rownames(himorna_peaks_neg_cor) <- himorna_peaks_neg_cor$X
+result <- melt(as.data.frame(df[grepl("ENSG00000267577|ENSG00000167646", df$Name), ]))
+result <- result[order(result$Description, result$value),]
+result_show <- dplyr::filter(result, variable %in% tail(result[order(result$Description, result$value),])[,'variable'])
+result_show$value <- log10(result_show$value+1)
 
-peak_anno_pos_cor <- get_annotation(himorna_peaks_pos_cor, "rho > 0", txdb)
-peak_anno_neg_cor <- get_annotation(himorna_peaks_neg_cor, "rho < 0", txdb)
+panel_b <- ggplot(result_show, aes(x = variable , y = value , fill = Description )) +
+  theme_bw() + scale_fill_manual(values = c("DNAAF3-AS1" = "#E41A1C", "DNAAF3" = "#377EB8")) +
+  geom_bar(position = "dodge", stat = "identity") +
+  theme(panel.border = element_blank(), 
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  legend.position = 'bottom',
+  text = element_text(size = 6),
+  axis.text.x = element_text(size = 5),
+  axis.ticks.x = element_blank(),
+  axis.title.y = element_text(size = 6),
+  axis.text.y = element_text(size = 6),
+  legend.key.size = unit(0.2, "cm"),
+  legend.text = element_text(size = 5),
+  plot.title = element_text(size = 6, hjust = 0.5),
+  plot.tag = element_text(size = 8, face="plain")) +
+  guides(fill=guide_legend(ncol = 2)) +
+  labs(title = "GTEx11", fill = "", tag = "B") + coord_flip()
 
-anno_stat_pos       <- peak_anno_pos_cor@annoStat
-anno_stat_pos$Type  <- "rho > 0"
+# Panel C: Number of significant DE genes per ASO in FANTOM6, highlight ASO_G0267577_01 and ASO_G0267577_03
 
-anno_stat_neg       <- peak_anno_neg_cor@annoStat
-anno_stat_neg$Type  <- "rho < 0"
+all_deseq2_results <- read.csv("DESeq2_genes_ASO_all.tsv", sep = "\t")
 
-anno_stat_combined           <- rbind(anno_stat_pos, anno_stat_neg)
-anno_stat_combined$Type      <- factor(anno_stat_combined$Type, levels = c("rho > 0", "rho < 0"))
-anno_stat_combined$Frequency <- as.numeric(anno_stat_combined$Frequency)
-anno_stat_combined$Feature   <- factor(anno_stat_combined$Feature,
-    levels = rev(c("Promoter", "5' UTR", "1st Exon", "1st Intron",
-                   "Other Exon", "Other Intron", "3' UTR", "Distal Intergenic")))
+highlight_asos <- c("ASO_G0267577_01", "ASO_G0267577_03")
 
-anno_stat_combined <- as.data.frame(tidyr::complete(anno_stat_combined, Type, Feature))
+sig_counts <- all_deseq2_results %>%
+    dplyr::filter(fdr < 0.05) %>%
+    dplyr::count(perturb_id, name = "n_sig") %>%
+    dplyr::arrange(n_sig)
+sig_counts$perturb_id <- factor(sig_counts$perturb_id, levels = sig_counts$perturb_id)
+sig_counts$highlight  <- ifelse(sig_counts$perturb_id %in% highlight_asos,
+                                as.character(sig_counts$perturb_id), "other")
 
-panel_b <- ggplot(anno_stat_combined, aes(x = Feature, y = Frequency, fill = Type)) +
+x_labels <- ifelse(levels(sig_counts$perturb_id) %in% highlight_asos,
+                   levels(sig_counts$perturb_id), "")
+
+panel_c <- ggplot(sig_counts, aes(x = perturb_id, y = n_sig, fill = highlight)) +
     theme_bw() +
-    geom_bar(position = "dodge", stat = "identity") +
-    scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = c("ASO_G0267577_01" = "#E41A1C",
+                                 "ASO_G0267577_03" = "#377EB8",
+                                 "other"           = "grey70"),
+                      breaks = highlight_asos) +
+    scale_x_discrete(labels = x_labels) +
     panel_theme +
-    guides(fill = guide_legend(ncol = 3)) +
-    labs(title = "HiMoRNA peaks annotation", y = "Frequency (%)",
-         fill = "Spearman correlation", tag = "B") +
-    coord_flip()
+    theme(axis.text.x = element_text(size = 5, angle = 90, hjust = 1, vjust = 0.5)) +
+    labs(title = "Significant DE genes per ASO (FDR < 0.05)",
+         y = "Number of DE genes", x = NULL, fill = NULL, tag = "C")
 
-# ── Panel C: Differential promoters sankey (ASO_01) ───────────────────────────
-dex_results_aso1      <- read.csv("aso1_dex_results_not_sig.csv", sep = "\t")
-dex_results_aso1 <- dex_results_aso1[dex_results_aso1$padj < 0.05,]
-dex_results_aso1      <- dex_results_aso1[!is.na(dex_results_aso1$log2fold_aso_control), ]
-dex_results_aso1_up   <- dplyr::filter(dex_results_aso1, log2fold_aso_control > 0)
-dex_results_aso1_down <- dplyr::filter(dex_results_aso1, log2fold_aso_control < 0)
+# Panel D: PROGENY pathway activities in DE genes
 
-dex_results_aso3      <- read.csv("aso3_dex_results_not_sig.csv", sep = "\t")
-dex_results_aso3 <- dex_results_aso3[dex_results_aso3$padj < 0.05,]
-dex_results_aso3      <- dex_results_aso3[!is.na(dex_results_aso3$log2fold_aso_control), ]
-dex_results_aso3_up   <- dplyr::filter(dex_results_aso3, log2fold_aso_control > 0)
-dex_results_aso3_down <- dplyr::filter(dex_results_aso3, log2fold_aso_control < 0)
+panel_d = readRDS('decoupler_ASO_G0267577_01_pathway_activities.rds') + panel_theme + labs(tag = "D")
 
-coords_up <- dex_results_aso1_up[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "genomicData.strand")]
-colnames(coords_up) <- c("seqnames", "start", "end", "strand")
-granges_up <- toGRanges(coords_up, format = "BED")
+# Panel E,F: GO:BP enrichment
+deseq2_aso1     <- dplyr::filter(all_deseq2_results, perturb_id == "ASO_G0267577_01")
+deseq2_aso1_sig <- deseq2_aso1[deseq2_aso1$fdr < 0.05, ]
+deseq2_aso3     <- dplyr::filter(all_deseq2_results, perturb_id == "ASO_G0267577_03")
+deseq2_aso3_sig <- deseq2_aso3[deseq2_aso3$fdr < 0.05, ]
 
-coords_down <- dex_results_aso1_down[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "genomicData.strand")]
-colnames(coords_down) <- c("seqnames", "start", "end", "strand")
-granges_down <- toGRanges(coords_down, format = "BED")
+deseq2_aso1_up   <- deseq2_aso1_sig$geneID[deseq2_aso1_sig$log2FC > 0]
+deseq2_aso1_down <- deseq2_aso1_sig$geneID[deseq2_aso1_sig$log2FC < 0]
+deseq2_aso3_up   <- deseq2_aso3_sig$geneID[deseq2_aso3_sig$log2FC > 0]
+deseq2_aso3_down <- deseq2_aso3_sig$geneID[deseq2_aso3_sig$log2FC < 0]
 
-peak_anno_up_aso1   <- annotatePeak(granges_up,   tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
-peak_anno_down_aso1 <- annotatePeak(granges_down, tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
+aso1_universe    <- unique(deseq2_aso1$geneID)
+aso3_universe    <- unique(deseq2_aso3$geneID)
 
-anno_df_up        <- peak_anno_up_aso1@anno
-anno_df_up$Type   <- "up"
-anno_df_down      <- peak_anno_down_aso1@anno
-anno_df_down$Type <- "down"
+ego_aso1_up   <- enrich_go_bp(deseq2_aso1_up,   aso1_universe)
+ego_aso1_down <- enrich_go_bp(deseq2_aso1_down, aso1_universe)
 
-anno_df_combined             <- rbind(as.data.frame(anno_df_up), as.data.frame(anno_df_down))
-anno_df_combined$annotation  <- str_split_fixed(anno_df_combined$annotation, " ", 2)[, 1]
-anno_df_combined             <- dplyr::filter(anno_df_combined, annotation %in% c("Promoter", "Exon", "Intron"))
+panel_e <- dotplot(ego_aso1_up, showCategory = 10) +
+    theme_bw() + panel_theme +
+    labs(title = "GO:BP – ASO_01 up DE genes", tag = "E")
 
-sankey_df <- anno_df_combined %>% make_long(annotation, Type)
+panel_f <- dotplot(ego_aso1_down, showCategory = 7) +
+    theme_bw() + panel_theme +
+    labs(title = "GO:BP – ASO_01 down DE genes", tag = "F")
 
-panel_c <- ggplot(sankey_df, aes(x = x, next_x = next_x, node = node,
-                                  next_node = next_node, fill = factor(node), label = node)) +
-    geom_sankey() +
-    geom_sankey_label(size = 3, color = "white", fill = "gray40") +
-    theme_bw() +
-    panel_theme +
-    theme(axis.title.x = element_blank()) +
-    scale_fill_manual(values = c("#4DAF4A", "#984EA3", "#999999", "#E41A1C", "#377EB8")) +
-    labs(title = "Promoter annotation ASO_01", fill = "Feature", tag = "C")
+# ── Shared legend for panels E and F ──────────────────────────────────────────
+# The two dotplots have different colour (p.adjust) and size (Count) scales, so
+# harmonise their limits to a common range, then draw a single shared legend.
+ef_data     <- rbind(panel_e$data[, c("Count", "p.adjust")],
+                     panel_f$data[, c("Count", "p.adjust")])
+padj_range  <- range(ef_data$p.adjust)
+count_range <- range(ef_data$Count)
+
+shared_scales <- list(
+    scale_color_gradient(name = "p.adjust", limits = padj_range,
+                         low = "red", high = "blue",
+                         guide = guide_colorbar(reverse = TRUE)),
+    scale_size_continuous(name = "Count", limits = count_range,
+                          range = c(0.5, 3))
+)
+panel_e <- panel_e + shared_scales
+panel_f <- panel_f + shared_scales
+
+# Extract one common legend and remove the per-panel legends.
+ef_legend <- ggpubr::get_legend(panel_e)
+panel_ef  <- arrangeGrob(
+    arrangeGrob(panel_e + theme(legend.position = "none"),
+                panel_f + theme(legend.position = "none"),
+                ncol = 2),
+    ef_legend,
+    ncol    = 1,
+    heights = c(1, 0.2)
+)
 
 # ── Assemble and save figure ───────────────────────────────────────────────────
 figure1_grob <- arrangeGrob(
-    panel_a, panel_b, panel_c,
-    ncol = 2, nrow = 2,
-    layout_matrix = rbind(c(1, 3), c(2, 3))
+    panel_a, panel_b, panel_c, panel_d, panel_ef,
+    layout_matrix = rbind(
+        c(1, 2),
+        c(3, 4),
+        c(5, 5)
+    ),
+    heights = c(1, 1, 1)
 )
-ggsave("Figure1.png", plot = figure1_grob, width = 18, height = 15, units = "cm")
 
-
-
-# Promoter changes direction
-
-dex_results_aso1 <- read.csv("aso1_dex_results_not_sig.csv", sep = "\t")
-dex_results_aso1 <- dex_results_aso1[dex_results_aso1$padj < 0.05,]
-
-dex_results_aso1_up <- dplyr::filter(dex_results_aso1, log2fold_aso_control > 0)
-dex_results_aso1_down <- dplyr::filter(dex_results_aso1, log2fold_aso_control < 0)
-
-coords <- dex_results_aso1_up[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "genomicData.strand")]
-colnames(coords) <- c("seqnames", "start", "end", "strand")
-granges <- toGRanges(coords, format = "BED")
-granges_anno_up   <- annotatePeak(granges,   tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
-granges_anno_up_df <- as.data.frame(granges_anno_up@anno)
-granges_anno_up_df$effect <- 'up'
-
-coords <- dex_results_aso1_down[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "genomicData.strand")]
-colnames(coords) <- c("seqnames", "start", "end", "strand")
-granges <- toGRanges(coords, format = "BED")
-granges_anno_down   <- annotatePeak(granges,   tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
-granges_anno_down_df <- as.data.frame(granges_anno_down@anno)
-granges_anno_down_df$effect <- 'down'
-
-genes_with_switch <- c()
-for(gene in unique(c(granges_anno_up_df$geneId, granges_anno_down_df$geneId)))
-{
-    granges_anno_up_df_gene <- granges_anno_up_df[granges_anno_up_df$geneId == gene,]
-    granges_anno_down_df_gene <- granges_anno_down_df[granges_anno_down_df$geneId == gene,]
-    granges_anno_up_df_gene_gene_promoter <- granges_anno_up_df_gene[granges_anno_up_df_gene$annotation == 'Promoter',]
-    granges_anno_down_df_gene_gene_promoter <- granges_anno_down_df_gene[granges_anno_down_df_gene$annotation == 'Promoter',]
-
-    if((('+' %in% granges_anno_up_df_gene_gene_promoter$strand) && # both + and - present
-       ('-' %in% granges_anno_down_df_gene_gene_promoter$strand)) ||
-      (('-' %in% granges_anno_up_df_gene_gene_promoter$strand) &&
-       ('+' %in% granges_anno_down_df_gene_gene_promoter$strand)))
-    {
-        genes_with_switch <- c(genes_with_switch, gene)
-    }
-}
-
-
-n_genes_aso01 <- length(unique(dex_results_aso1$groupID))
-n_genes_switch_aso01 <- length(unique(genes_with_switch))
-
-dex_results_aso3      <- read.csv("aso3_dex_results_not_sig.csv", sep = "\t")
-dex_results_aso3 <- dex_results_aso3[dex_results_aso3$padj < 0.05,]
-
-dex_results_aso3_up <- dplyr::filter(dex_results_aso3, log2fold_aso_control > 0)
-dex_results_aso3_down <- dplyr::filter(dex_results_aso3, log2fold_aso_control < 0)
-
-coords <- dex_results_aso3_up[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "genomicData.strand")]
-colnames(coords) <- c("seqnames", "start", "end", "strand")
-granges <- toGRanges(coords, format = "BED")
-granges_anno_up   <- annotatePeak(granges,   tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
-granges_anno_up_df <- as.data.frame(granges_anno_up@anno)
-granges_anno_up_df$effect <- 'up'
-
-coords <- dex_results_aso3_down[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "genomicData.strand")]
-colnames(coords) <- c("seqnames", "start", "end", "strand")
-granges <- toGRanges(coords, format = "BED")
-granges_anno_down   <- annotatePeak(granges,   tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
-granges_anno_down_df <- as.data.frame(granges_anno_down@anno)
-granges_anno_down_df$effect <- 'down'
-
-genes_with_switch <- c()
-for(gene in unique(c(granges_anno_up_df$geneId, granges_anno_down_df$geneId)))
-{
-    granges_anno_up_df_gene <- granges_anno_up_df[granges_anno_up_df$geneId == gene,]
-    granges_anno_down_df_gene <- granges_anno_down_df[granges_anno_down_df$geneId == gene,]
-    granges_anno_up_df_gene_gene_promoter <- granges_anno_up_df_gene[granges_anno_up_df_gene$annotation == 'Promoter',]
-    granges_anno_down_df_gene_gene_promoter <- granges_anno_down_df_gene[granges_anno_down_df_gene$annotation == 'Promoter',]
-
-    if((('+' %in% granges_anno_up_df_gene_gene_promoter$strand) && # both + and - present
-       ('-' %in% granges_anno_down_df_gene_gene_promoter$strand)) ||
-      (('-' %in% granges_anno_up_df_gene_gene_promoter$strand) &&
-       ('+' %in% granges_anno_down_df_gene_gene_promoter$strand)))
-    {
-        genes_with_switch <- c(genes_with_switch, gene)
-    }
-}
-
-n_genes_aso03 <- length(unique(dex_results_aso3$groupID))
-n_genes_switch_aso03 <- length(unique(genes_with_switch))
-
-df <- data.frame(c(n_genes_switch_aso01, n_genes_aso01 - n_genes_switch_aso01, n_genes_switch_aso03, n_genes_aso03 - n_genes_switch_aso03),
-    c('ASO_01','ASO_01','ASO_03','ASO_03'),
-    c(TRUE, FALSE, TRUE, FALSE))
-colnames(df) <- c('n_genes', 'aso', 'bidirectional')
-
-panel_c <- ggplot(df, aes(x = aso, y = n_genes, fill = bidirectional)) +
-    theme_bw() +
-    geom_bar(position = "stack", stat = "identity") +
-    scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
-    panel_theme +
-    guides(fill = guide_legend(ncol = 3)) +
-    labs(title = "", y = "Number of genes",
-         fill = "Bidirectional switch", tag = "C")
+ggsave("Figure1.png", plot = figure1_grob, width = 18, height = 22, units = "cm")
