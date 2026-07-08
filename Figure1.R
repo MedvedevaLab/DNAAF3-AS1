@@ -157,9 +157,7 @@ panel_f <- dotplot(ego_aso1_down, showCategory = 7) +
     theme_bw() + panel_theme +
     labs(title = "GO:BP – ASO_01 down DE genes", tag = "F")
 
-# ── Shared legend for panels E and F ──────────────────────────────────────────
-# The two dotplots have different colour (p.adjust) and size (Count) scales, so
-# harmonise their limits to a common range, then draw a single shared legend.
+# Shared legend for panels E and F
 ef_data     <- rbind(panel_e$data[, c("Count", "p.adjust")],
                      panel_f$data[, c("Count", "p.adjust")])
 padj_range  <- range(ef_data$p.adjust)
@@ -175,7 +173,6 @@ shared_scales <- list(
 panel_e <- panel_e + shared_scales
 panel_f <- panel_f + shared_scales
 
-# Extract one common legend and remove the per-panel legends.
 ef_legend <- ggpubr::get_legend(panel_e)
 panel_ef  <- arrangeGrob(
     arrangeGrob(panel_e + theme(legend.position = "none"),
@@ -186,7 +183,7 @@ panel_ef  <- arrangeGrob(
     heights = c(1, 0.2)
 )
 
-# ── Assemble and save figure ───────────────────────────────────────────────────
+# Assemble and save figure
 figure1_grob <- arrangeGrob(
     panel_a, panel_b, panel_c, panel_d, panel_ef,
     layout_matrix = rbind(
