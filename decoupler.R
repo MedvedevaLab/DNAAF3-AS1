@@ -70,6 +70,11 @@ run_aso <- function(deseq, net, aso_id) {
 
     plot_pathways(pathway_df, aso_id)
 
+    bar_df <- acts %>%
+      filter(statistic == "mlm") %>%
+      arrange(score) %>%
+      mutate(source = factor(source, levels = source))
+    
     top_pathway <- bar_df$source[which.max(bar_df$score)]
     top_pathway <- as.character(top_pathway)
     plot_targets(top_pathway, net, aso_id)
