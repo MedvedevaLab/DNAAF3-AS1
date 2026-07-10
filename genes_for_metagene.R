@@ -72,7 +72,7 @@ matr_control_tpm <- t(t(x) * 1e6 / colSums(x))
 # Mean expression (log10-transformed)
 expr_mean <- data.frame(
   expr      = rowMeans(matr_control_tpm),
-  row.names = rownames(matr_control)
+  row.names = gene_lengths$ensembl_gene_id
 )
 expr_mean <- log10(expr_mean + 1)
 
@@ -80,6 +80,7 @@ expr_mean <- log10(expr_mean + 1)
 rownames(df) <- str_split_fixed(rownames(df), "\\.", 2)[, 1]
 tiers <- classify_expression(expr_mean)
 
+saveRDS(tiers, 'expr_tiers.rds')
 for (tier in names(tiers)) {
   genes <- tiers[[tier]]
   write.csv(as.data.frame(genes), paste0("ctd_", tier, ".txt"), quote = FALSE, row.names = FALSE)
