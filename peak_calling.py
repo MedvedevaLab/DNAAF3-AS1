@@ -7,9 +7,9 @@ BLACKLIST = "/data/budkina/himorna_chipseq_data/new_processing/hg38-blacklist.v3
 
 SAMPLE_PAIRS = [
     ("C-10_S42", "I-10_S14"),
-    ("C-9_S41",  "I-9_S13")
+    ("C-9_S41",  "I-9_S13"),
     ("C-19_S51", "I-19_S23"),
-    ("C-20_S52", "I-20_S24"),
+    ("C-20_S52", "I-20_S24")
 ]
 
 def run(cmd, name):
@@ -24,14 +24,14 @@ for C_ID, I_ID in SAMPLE_PAIRS:
         f" -savp={C_ID}.spp.pdf -savd={C_ID}.spp.Rdata -out={C_ID}.spp.out",
         "phantomtools")
 
-# cp 'C-9_S41.bw' 'ASO_G0267577_01 signal.bw'
-# cp 'C-10_S42.bw' 'ASO_G0267577_03 signal.bw'
-# cp 'I-9_S13.bw' 'ASO_G0267577_01 input.bw'
-# cp 'I-10_S14.bw' 'ASO_G0267577_03 input.bw'
-# cp 'C-19_S51.bw' 'Control1 signal.bw'
-# cp 'C-20_S52.bw' 'Control2 signal.bw'
-# cp 'I-19_S23.bw' 'Control1 input.bw'
-# cp 'I-20_S24.bw' 'Control2 input.bw'
+cp 'C-9_S41.bw' 'ASO_G0267577_01 signal.bw'
+cp 'C-10_S42.bw' 'ASO_G0267577_03 signal.bw'
+cp 'I-9_S13.bw' 'ASO_G0267577_01 input.bw'
+cp 'I-10_S14.bw' 'ASO_G0267577_03 input.bw'
+cp 'C-19_S51.bw' 'Control1 signal.bw'
+cp 'C-20_S52.bw' 'Control2 signal.bw'
+cp 'I-19_S23.bw' 'Control1 input.bw'
+cp 'I-20_S24.bw' 'Control2 input.bw'
 
 run(f"computeMatrix scale-regions --metagene -m 2000 -S 'ASO_G0267577_01 signal.bw' 'ASO_G0267577_03 signal.bw' 'ASO_G0267577_01 input.bw'  'ASO_G0267577_03 input.bw' "
 f"-R {BED_REGIONS_HIGH} "
