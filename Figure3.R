@@ -1,49 +1,163 @@
-library(dplyr)
-library(tidyr)
-
-library(Seurat)
-
-library(ChIPseeker)
-library(ChIPpeakAnno)
-library(GenomeInfoDb)
-library(AnnotationHub)
-library(TxDb.Hsapiens.UCSC.hg38.knownGene)
-library(clusterProfiler)
-
-library(GenomicRanges)
-library(GenomicFeatures)
-library(stringr)
-library(reshape2)
-
 library(ggplot2)
-library(ggrepel)
 library(ggpubr)
-library(grid)
-library(gridExtra)
+library(ChIPseeker)
 library(png)
-library(RColorBrewer)
-
-library(biomaRt)
-library(scales)
-
-# pyGenomeTracks --tracks plot_smyd3.ini --region chr1:245739000-246520000 -o Figure3A.png --plotWidth 120 --dpi 130
+library(gridExtra)
+library(dplyr)
+library(ChIPpeakAnno)
+library(grid)
+library("GenometriCorr")
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(stringr)
+library(ggrepel)
+library(Seurat)
 
 panel_theme <- theme(
     panel.border       = element_blank(),
     panel.grid.major   = element_blank(),
     panel.grid.minor   = element_blank(),
     legend.position    = "bottom",
+    axis.title.x       = element_text(size = 6),
+    axis.text.x        = element_text(size = 6, hjust = 0.5),
     legend.title       = element_text(size = 6),
     legend.key.size    = unit(0.2, "cm"),
     legend.text        = element_text(size = 5),
-    axis.title.x       = element_text(size = 6),
-    axis.text.x        = element_text(size = 6),
-    axis.title.y       = element_text(size = 6),
+    axis.ticks.x       = element_blank(),
     axis.text.y        = element_text(size = 6),
-    plot.title         = element_text(size = 6, face="plain"),
+    axis.title.y       = element_blank(),
+    plot.title         = element_text(size = 6),
     plot.tag           = element_text(size = 6, face = "plain"),
     legend.spacing.y   = unit(2, "cm")
 )
+
+
+
+# Annotate genomic peaks from a data frame of coordinates.
+# `cols` selects the chrom/start/end columns (by name or position).
+get_annotation <- function(peaks, txdb, cols = c(1, 2, 3)) {
+  coords <- peaks[, cols]
+  coords <- cbind(coords, "*")
+  colnames(coords) <- c("seqnames", "start", "end", "strand")
+  coords$start <- as.numeric(coords$start)
+  coords$end   <- as.numeric(coords$end)
+  ranges <- toGRanges(coords, format = "BED")
+  peakAnno <- annotatePeak(ranges, tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
+  return(peakAnno)
+}
+
+gtf_name <- "gencode.v49.annotation.gtf"
+txdb <- makeTxDbFromGFF(gtf_name)
+
+# Panel A
+img <- readPNG('metascape.png')
+g11 <- rasterGrob(img,
+  interpolate=TRUE, width = unit(3.5,"in"), height=unit(1.2,"in"))
+
+panel_a<- ggplot(geom="blank") +
+  annotation_custom(g11) +
+  theme_bw() +
+  panel_theme +
+  theme(
+      axis.title.x = element_blank(),
+      legend.key.size = unit(0.2, "cm"),
+      legend.text = element_text(size = 5)) + labs(tag = "A")
+
+
+
+diffbind_results <- read.csv('/data/budkina/himorna_chipseq_data/test/CTD-2587H24.5_H3K36me3_differential_peaks.csv', sep = '\t')
+diffbind_sig <- diffbind_results[diffbind_results$FDR < 0.05,] # & abs(diffbind_results$Fold) > 1
+
+diffbind_sig$significance <- "Unchanged"
+diffbind_sig$significance[diffbind_sig$Fold < 0] <- "Lost"
+diffbind_sig$significance[diffbind_sig$Fold > 0] <- "Gained"
+diffbind_sig$significance <- factor(diffbind_sig$significance, levels = c( "Gained", "Lost", "Unchanged"))
+
+
+diffbind_sig_gained    <- diffbind_sig[diffbind_sig$significance == "Gained", ]
+
+diffbind_sig_gained_bed <- diffbind_sig_gained[, c("seqnames", "start", "end", "strand")]
+
+write.table(
+    file      = "diffbind_sig_gained.bed",
+    diffbind_sig_gained_bed,
+    quote     = FALSE,
+    row.names = FALSE,
+    col.names = FALSE,
+    sep       = "\t"
+)
+
+diffbind_sig_lost    <- diffbind_sig[diffbind_sig$significance == "Lost", ]
+
+diffbind_sig_lost_bed <- diffbind_sig_lost[, c("seqnames", "start", "end", "strand")]
+
+write.table(
+    file      = "diffbind_sig_lost.bed",
+    diffbind_sig_lost_bed,
+    quote     = FALSE,
+    row.names = FALSE,
+    col.names = FALSE,
+    sep       = "\t"
+)
+             
+
+gained_peak_anno       <- get_annotation(diffbind_sig_gained, txdb)
+gained_peak_anno_df    <- as.data.frame(gained_peak_anno@anno)
+gained_peak_anno_df$geneId <- str_split_fixed(gained_peak_anno_df$geneId, "\\.", 2)[, 1]
+gained_peak_anno_df <- gained_peak_anno_df[gained_peak_anno_df$annotation != 'Promoter',]
+  
+
+all_deseq2_results <- read.csv("DESeq2_genes_ASO_all.tsv", sep = "\t")
+deseq2_aso1     <- dplyr::filter(all_deseq2_results, perturb_id == "ASO_G0267577_01")
+deseq2_aso1_sig <- deseq2_aso1[deseq2_aso1$fdr < 0.05, ]
+deseq2_aso3     <- dplyr::filter(all_deseq2_results, perturb_id == "ASO_G0267577_03")
+deseq2_aso3_sig <- deseq2_aso3[deseq2_aso3$fdr < 0.05, ]
+
+
+
+
+de_to_plot <-  dplyr::filter(deseq2_aso1, geneID %in% gained_peak_anno_df$geneId)
+
+
+de_to_plot$log_padj <- -log10(de_to_plot$fdr)
+de_to_plot$sig <- de_to_plot$fdr < 0.05
+
+reproduction_genes <- c('BCL2L2', 'PSMA1', 'RFX2', 'RPL30', 'VDAC3', 'SELENOF')
+de_to_plot$reproduction <- de_to_plot$geneSymbol %in% reproduction_genes
+
+panel_b <- ggplot(de_to_plot, aes(x = log2FC, y = log_padj, label = ifelse(sig, geneSymbol, NA))) +
+    geom_point(shape = 1, alpha = 0.4) +
+    geom_text_repel(color = "black", size = 2, max.overlaps = 12) +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "grey60") +
+    theme_bw() +
+    panel_theme +
+    labs(title = "ASO_01 differential expression gained peaks",
+         x = "log2FC", y = "-log10(FDR)", tag = "B")
+
+
+
+# G. Dotplot of reproduction genes across ASO_01 and ASO_03
+dotplot_df <- dplyr::filter(all_deseq2_results,
+    perturb_id %in% c("ASO_G0267577_01", "ASO_G0267577_03"),
+    geneSymbol %in% reproduction_genes)
+dotplot_df$ASO <- ifelse(dotplot_df$perturb_id == "ASO_G0267577_01", "ASO_01", "ASO_03")
+dotplot_df <- dotplot_df %>%
+    dplyr::group_by(ASO, geneSymbol) %>%
+    dplyr::slice_min(fdr, n = 1, with_ties = FALSE) %>%
+    dplyr::ungroup()
+dotplot_df$log_padj <- -log10(dotplot_df$fdr)
+dotplot_df$geneSymbol <- factor(dotplot_df$geneSymbol, levels = rev(reproduction_genes))
+dotplot_df$sig <- dotplot_df$fdr < 0.05
+
+panel_c <- ggplot(dotplot_df, aes(x = ASO, y = geneSymbol, fill = log2FC, size = log_padj, color = sig)) +
+    geom_point(shape = 21, stroke = 0.6) +
+    scale_fill_gradient2(low = "#1F78B4", mid = "white", high = "#E31A1C", midpoint = 0) +
+    scale_color_manual(values = c("TRUE" = "black", "FALSE" = NA), guide = "none") +
+    scale_size_continuous(range = c(1, 5)) +
+    theme_bw() +
+    panel_theme +
+    labs(title = "Reproduction genes", x = NULL, size = "-log10(FDR)",
+         fill = "log2FC", tag = "C")
+
 
 # Single-cell GSE112013 dataset
 seurat_object <- readRDS('testis.rds')
@@ -58,65 +172,48 @@ cols <- rev(c("#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F", "#EDC948", 
 
 # UMAPs with annotation
 # 
-panel_a <- DimPlot(seurat_object, reduction = "umap", group.by = "celltype", label = FALSE, repel = TRUE, raster=FALSE) + 
+panel_d <- DimPlot(seurat_object, reduction = "umap", group.by = "celltype", label = FALSE, repel = TRUE, raster=FALSE) + 
 panel_theme +
   theme(plot.title = element_blank()) + 
   guides(fill = guide_legend(ncol = 3)) +
   scale_color_manual(values = rev(cols), guide = guide_legend(reverse = TRUE), drop = FALSE) +
-  labs(title = "", tag = "A")
+  labs(title = "", tag = "D")
 
-panel_b1 <- VlnPlot(
-  seurat_object, group.by = "celltype",
-  features = c('CTD-2587H24.5'),
-  alpha = 0, log = TRUE) + 
+# ── panel_d: DNAAF3-AS1 and DNAAF3 expression across cell types ───────────────
+# Combine the two per-gene violins into one boxplot panel (both genes side by
+# side per cell type) and overlay a smoothed trend across cell types (ordered
+# along spermatogenesis) for each gene.
+d_genes <- c('CTD-2587H24.5', 'DNAAF3', 'RFX2')
+d_expr  <- FetchData(seurat_object, vars = c(d_genes, "celltype"))
+d_long  <- tidyr::pivot_longer(d_expr, cols = tidyselect::all_of(d_genes),
+                               names_to = "gene", values_to = "expression")
+d_long$gene         <- factor(d_long$gene, levels = d_genes,
+                              labels = c("DNAAF3-AS1", "DNAAF3", 'RFX2'))
+# Drop somatic / non-germline cell types from this panel
+d_exclude_celltypes <- c("Macrophage", "Endothelial cells", "Myoid cells", "Sertoli cells")
+d_long              <- d_long[!(d_long$celltype %in% d_exclude_celltypes), ]
+d_long$celltype     <- factor(d_long$celltype,
+                              levels = setdiff(levels(seurat_object$celltype),
+                                               d_exclude_celltypes))
+d_long$celltype_num <- as.numeric(d_long$celltype)
+
+gene_cols <- c("DNAAF3-AS1" = "#4E79A7",
+  "DNAAF3" = "#F28E2B",
+  'RFX2' = "#E15759")
+
+panel_e <- ggplot(d_long, aes(x = celltype, y = expression, fill = gene)) +
+  geom_boxplot(outlier.size = 0.2, linewidth = 0.2, alpha = 0.7,
+               position = position_dodge(width = 0.8)) +
+  geom_smooth(aes(x = celltype_num, color = gene, group = gene),
+              method = "loess", se = FALSE, linewidth = 0.6) +
+  scale_fill_manual(values = gene_cols, name = "") +
+  scale_color_manual(values = gene_cols, name = "") +
   panel_theme +
-  theme(strip.text.x = element_text(size = 6),
-        strip.background = element_blank(),
-        legend.position="none",
-        axis.title.x = element_blank(),
-        axis.text.x = element_blank()) +
-  scale_fill_manual(values = rev(cols), guide = guide_legend(reverse = TRUE), drop = FALSE) +
-  labs(title = "DNAAF3-AS1", tag = "B")
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5)) +
+  labs(title = "", x = NULL,
+       y = "Expression (log-normalized)", tag = "E")
 
-panel_b2 <- VlnPlot(
-  seurat_object, group.by = "celltype",
-  features = c('DNAAF3'),
-  alpha = 0, log = TRUE) + 
-  panel_theme +
-  theme(strip.text.x = element_text(size = 6),
-        strip.background = element_blank(),
-        legend.position="none",
-        axis.title.x = element_blank()) +
-  scale_fill_manual(values = rev(cols), guide = guide_legend(reverse = TRUE), drop = FALSE) +
-  labs(title = "DNAAF3", tag = "")
-
-
-seurat_object <- readRDS('testis_promoter.rds')
-
-Idents(object = seurat_object) <- seurat_object@meta.data$celltype
-seurat_object$celltype <- factor(seurat_object$celltype, 
-                        levels = c("SSCs", "Differentiating S'gonia", "Early primary S'cytes",
-                          "Late primary S'cytes", "Round S'tids", "Elongated S'tids", "Sperm1",
-                          "Sperm2", "Sperm3", "Macrophage", "Endothelial cells", "Myoid cells",
-                          "Sertoli cells"))
-
-panel_b3 <- VlnPlot(
-  seurat_object, group.by = "celltype",
-  features = paste0("add_module_score", 2),
-  alpha = 0, log = TRUE) + 
-  panel_theme +
-  theme(strip.text.x = element_text(size = 6),
-        strip.background = element_blank(),
-        legend.position="none",
-        axis.title.x = element_blank()) +
-  scale_fill_manual(values = rev(cols), guide = guide_legend(reverse = TRUE), drop = FALSE) +
-  labs(title = "H3K36me3 in promoter, HiMoRNA rho < -0.5", tag = "C")
-
-
-p <- ggarrange(panel_a, panel_b1, panel_b2, panel_b3, ncol = 1, nrow = 4, common.legend = TRUE, legend="bottom")
-ggsave("test.png", plot = p, width = 10, height = 20, units = "cm")
-
-
+# Panel E
 
 df1 <- read.csv("rnachrom1.csv",sep = ',')
 df1$experiment <- 'iMARGI1'
@@ -143,174 +240,49 @@ df10 <- read.csv("rnachrom10.csv")
 df10$experiment <- 'Red-C'
 
 df_all <- do.call(rbind, list(df1, df2, df3, df4, df5, df7, df8, df10))
-
-# Target genes intersection
-
-gtf_name <- "gencode.v49.annotation.gtf"
-txdb <- makeTxDbFromGFF(gtf_name)
-genes_gr <- genes(txdb)   # returns a GRanges with gene_id in metadata
-
+ 
 gr_regions <- GRanges(
   seqnames = df_all$Chromosome,
   ranges   = IRanges(start = df_all$Gene.start,
                      end   = df_all$Gene.end)
 )
 
-hits <- findOverlaps(gr_regions, genes_gr, ignore.strand = TRUE)
+all_peaks <- diffbind_sig #%>%  dplyr::filter(Fold < 0)
 
-results_genes <- data.frame(
-  region_chrom = as.character(seqnames(gr_regions))[queryHits(hits)],
-  region_start = start(gr_regions)[queryHits(hits)],
-  region_end   = end(gr_regions)[queryHits(hits)],
-  gene_id      = genes_gr$gene_id[subjectHits(hits)],
-  gene_chrom   = as.character(seqnames(genes_gr))[subjectHits(hits)],
-  gene_start   = start(genes_gr)[subjectHits(hits)],
-  gene_end     = end(genes_gr)[subjectHits(hits)],
-  gene_strand  = as.character(strand(genes_gr))[subjectHits(hits)],
-  stringsAsFactors = FALSE
+peak_granges<- GRanges(
+  seqnames = all_peaks$seqnames,
+  ranges   = IRanges(start = all_peaks$start,
+                     end   = all_peaks$end)
 )
 
-target_genes <- unique(results_genes$gene_id)   
-target_genes <- str_split_fixed(target_genes, "\\.", 2)[, 1]
+genometri_res <- GenometriCorrelation(gr_regions, peak_granges, 
+  awhole.only = TRUE, 
+  permut.number = 50, 
+  keep.distributions = TRUE, 
+  showProgressBar = TRUE,
+  alternative = "attraction")
 
-###############################################################
+rel_dist_data <- genometri_res$awhole$relative.distances.data
 
-himorna_peaks <- read.csv("ENSG00000267577.tsv", sep = "\t")
-himorna_peaks <- dplyr::filter(himorna_peaks, hm == "H3K36me3")
-himorna_contacts <- dplyr::filter(himorna_peaks, gene_ens %in% target_genes)
+rel_dist_df <- data.frame(x = rel_dist_data)
 
-fantom <- read.csv('DESeq2_genes_ASO_all.tsv', sep = '\t')
-aso01 <- dplyr::filter(fantom, perturb_id == 'ASO_G0267577_01')
-aso01 <- aso01[aso01$fdr < 0.05, ]
+proj_pval <- genometri_res$awhole$relative.distances.ecdf.deviation.area.p.value
 
-aso01_contacts <- dplyr::filter(aso01, geneID %in% target_genes)
-aso01_contacts$in_himorna <- aso01_contacts$geneID  %in% himorna_contacts$gene_ens
-aso01_contacts$log_padj <-  -log(aso01_contacts$fdr,10)
-
-colors <- c('TRUE' = "#E31A1C", 'FALSE' = "#000000")
-
-panel_d <- ggplot(aso01_contacts, aes(x = log2FC,
-  y = log_padj,
-  label = ifelse(in_himorna, geneSymbol, NA),
-  color = in_himorna)) +
-  geom_point(shape = 1) + 
-  geom_text_repel( color = 'black', alpha = 1,  hjust = 0, vjust = 0, size = 4, max.overlaps = 8) +
-  scale_color_manual(values = colors, name = "") +
+panel_f <- ggplot(rel_dist_df, aes(x = x)) +
+  stat_ecdf(aes(color = "Observed"), geom = "step") +
+  geom_abline(aes(color = "Expected (y = 2x)"), slope = 2, intercept = 0) +
+  scale_color_manual(values = c("Observed" = "#E31A1C",
+                                "Expected (y = 2x)" = "black"),
+                     breaks = c("Observed", "Expected (y = 2x)")) +
+  annotate("text", x = 0.02, y = 0.95, hjust = 0, size = 2,
+           label = paste0("ecdf deviation area p-value = ", proj_pval)) +
   theme_bw() +
   panel_theme +
-  theme(text = element_text(size = 4)) +
-    labs(title = "ASO 01", x = "", y = "", tag = "D")
-
-
-###############################################################
-# Heatmap
-dex_results_aso1      <- read.csv("aso1_dex_results_not_sig.csv", sep = "\t")
-dex_results_aso1      <- dex_results_aso1[!is.na(dex_results_aso1$log2fold_aso_control), ]
-dex_results_aso1$groupID  <- str_split_fixed(dex_results_aso1$groupID , "\\.", 2)[, 1]
-
-dex_results_aso3      <- read.csv("aso3_dex_results_not_sig.csv", sep = "\t")
-dex_results_aso3      <- dex_results_aso3[!is.na(dex_results_aso3$log2fold_aso_control), ]
-dex_results_aso3$groupID  <- str_split_fixed(dex_results_aso3$groupID , "\\.", 2)[, 1]
-
-# Inner join on groupID + featureID; keep annotation from aso1, fall back to aso3
-merged_dex <- inner_join(dex_results_aso1, dex_results_aso3,
-                         by = c("groupID", "featureID"),
-                         suffix = c("", ".y"))
-
-# Keep features with padj < 0.05 in at least one experiment
-merged_dex <- merged_dex %>%
-  filter(!is.na(padj) | !is.na(padj.y)) %>%
-  filter(replace_na(padj, 1) < 0.05 | replace_na(padj.y, 1) < 0.05)
-
-# Keep only target genes and the three annotation categories
-merged_dex <- merged_dex %>%
-  filter(groupID %in% target_genes)
-
-# Annotate promoters
-coords <- merged_dex[, c("genomicData.seqnames", "genomicData.start", "genomicData.end", "genomicData.strand")]
-colnames(coords) <- c("seqnames", "start", "end", "strand")
-granges<- toGRanges(coords, format = "BED")
-peak_anno_granges_aso1   <- annotatePeak(granges, tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
-anno_df <- as.data.frame(peak_anno_granges_aso1@anno)
-anno_df$annotation <- str_split_fixed(anno_df$annotation, " ", 2)[, 1]
-anno_df <- dplyr::filter(anno_df, annotation %in% c("Promoter", "Exon", "Intron"))
-rownames(anno_df) <- paste0(anno_df$seqnames, anno_df$start - 1, anno_df$end, anno_df$strand)
-
-merged_dex$annotation <- anno_df[paste0(merged_dex$genomicData.seqnames, 
-  merged_dex$genomicData.start,
-  merged_dex$genomicData.end,
-  merged_dex$genomicData.strand),'annotation']
-
-merged_dex <- merged_dex %>%
-  filter(annotation %in% c("Exon", "Intron"))
-
-# Row labels: groupID@featureID
-
-mart <- useMart(biomart="ensembl", dataset="hsapiens_gene_ensembl")
-ensembl <- mart
-
-gene_names = getBM(attributes=c('ensembl_gene_id','hgnc_symbol'), filters = 'ensembl_gene_id', 
-    values = merged_dex$groupID, mart = ensembl, useCache = TRUE)
-rownames(gene_names) <- gene_names$ensembl_gene_id
-
-merged_dex$gene_name <- gene_names[merged_dex$groupID,'hgnc_symbol']
-merged_dex[is.na(merged_dex$gene_name), 'gene_name'] = merged_dex$groupID
+  labs(title = "Relative distance GenometriCorr",
+       x = "Fractional distance", y = "Cumulative fraction",
+       color = "", tag = "F")
 
 
 
-merged_dex$row_label <- paste0(merged_dex$gene_name, "@", merged_dex$featureID)
-rownames(merged_dex) <- merged_dex$row_label
-df1 <- merged_dex[ ,c('row_label', 'padj', 'log2fold_aso_control', 'annotation')]
-
-df1$condition <- 'ASO_01'
-colnames(df1) <- c('row_label', 'padj', 'log2fold_aso_control', 'annotation', 'condition')
-df2 <- merged_dex[ ,c('row_label', 'padj.y', 'log2fold_aso_control.y', 'annotation')]
-df2$condition <- 'ASO_03'
-colnames(df2) <- c('row_label', 'padj', 'log2fold_aso_control', 'annotation', 'condition')
-
-heatmap_long <- rbind(df1, df2)
-# Factor levels
-heatmap_long$annotation <- factor(heatmap_long$annotation, levels = c("Exon", "Intron"))
-heatmap_long$condition  <- factor(heatmap_long$condition,  levels = c("ASO_01", "ASO_03"))
-
-# # Cluster rows within each annotation group and concatenate the ordered labels
-# clust_order <- lapply(c("Exon", "Intron"), function(ann) {
-#   mat <- merged_dex %>%
-#     filter(annotation == ann) %>%
-#     dplyr::select(row_label, aso, aso.y, control, control.y) %>%
-#     tibble::column_to_rownames("row_label") %>%
-#     as.matrix()
-#   if (nrow(mat) < 2) return(rownames(mat))
-#   rownames(mat)[hclust(dist(mat, method = "euclidean"), method = "complete")$order]
-# })
-# row_order <- rev(unlist(clust_order))
-# heatmap_long$row_label <- factor(heatmap_long$row_label, levels = row_order)
-
-# heatmap_long <- as.data.frame(heatmap_long)
-# heatmap_long$value <- scale(heatmap_long$value)
-
-
-panel_e <- ggplot(heatmap_long, aes(x = condition, y = row_label, color = log2fold_aso_control, size = -log10(padj))) +
-  geom_point() +
-  facet_grid(annotation ~ ., scales = "free_y", space = "free_y") +
-  scale_color_gradientn(
-    colors = c('darkblue', "#1f77b4", "white", "#d62728", 'darkred'),
-    values = rescale(c(-14, -2, 0, 2, 4))) +
-  theme_bw() +
-  panel_theme +
-  theme(
-    strip.background = element_blank(),
-    strip.text.y     = element_text(size = 6, angle = 0),
-    axis.text.y      = element_text(size = 4),
-    legend.title     = element_text(size = 6),
-    legend.text      = element_text(size = 5))+
-    labs(title = "", x = "", y = "", tag = "E")
-
-
-figure3_grob <- arrangeGrob(
-  p, panel_d, panel_e, #  panel_e1,
-  ncol = 2, nrow = 3,
-  layout_matrix = rbind(c(1, 2), c(1, 3), c(1, 3))
-)
-
-ggsave("Figure3.png", plot = figure3_grob, width = 16, height = 20, units = "cm")
+g <- arrangeGrob(panel_a, panel_b, panel_c, panel_d, panel_e, panel_f, ncol = 2, nrow = 3, layout_matrix= rbind(c(1,2), c(3,4), c(5,6)))
+ggsave(paste0("Figure3.png"), plot = g, width = 18, height = 24, units = "cm")
