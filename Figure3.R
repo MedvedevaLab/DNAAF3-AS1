@@ -51,7 +51,7 @@ txdb <- makeTxDbFromGFF(gtf_name)
 # Panel A
 img <- readPNG('metascape.png')
 g11 <- rasterGrob(img,
-  interpolate=TRUE, width = unit(3.5,"in"), height=unit(1.2,"in"))
+  interpolate=TRUE, width = unit(6,"in"), height=unit(1.2,"in"))
 
 panel_a<- ggplot(geom="blank") +
   annotation_custom(g11) +
@@ -159,6 +159,23 @@ panel_c <- ggplot(dotplot_df, aes(x = ASO, y = geneSymbol, fill = log2FC, size =
          fill = "log2FC", tag = "C")
 
 
+
+# Panel A
+img <- readPNG('../Figure3A.png')
+g11 <- rasterGrob(img,
+  interpolate=TRUE, width = unit(6,"in"), height=unit(1.2,"in"))
+
+panel_d<- ggplot(geom="blank") +
+  annotation_custom(g11) +
+  theme_bw() +
+  panel_theme +
+  theme(
+      axis.title.x = element_blank(),
+      legend.key.size = unit(0.2, "cm"),
+      legend.text = element_text(size = 5)) + labs(tag = "D")
+
+
+
 # Single-cell GSE112013 dataset
 seurat_object <- readRDS('testis.rds')
 Idents(object = seurat_object) <- seurat_object@meta.data$celltype
@@ -172,12 +189,12 @@ cols <- rev(c("#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F", "#EDC948", 
 
 # UMAPs with annotation
 # 
-panel_d <- DimPlot(seurat_object, reduction = "umap", group.by = "celltype", label = FALSE, repel = TRUE, raster=FALSE) + 
+panel_e <- DimPlot(seurat_object, reduction = "umap", group.by = "celltype", label = FALSE, repel = TRUE, raster=FALSE) + 
 panel_theme +
   theme(plot.title = element_blank()) + 
   guides(fill = guide_legend(ncol = 3)) +
   scale_color_manual(values = rev(cols), guide = guide_legend(reverse = TRUE), drop = FALSE) +
-  labs(title = "", tag = "D")
+  labs(title = "", tag = "E")
 
 # ── panel_d: DNAAF3-AS1 and DNAAF3 expression across cell types ───────────────
 # Combine the two per-gene violins into one boxplot panel (both genes side by
@@ -201,17 +218,18 @@ gene_cols <- c("DNAAF3-AS1" = "#4E79A7",
   "DNAAF3" = "#F28E2B",
   'RFX2' = "#E15759")
 
-panel_e <- ggplot(d_long, aes(x = celltype, y = expression, fill = gene)) +
+panel_f <- ggplot(d_long, aes(x = celltype, y = expression, fill = gene)) +
   geom_boxplot(outlier.size = 0.2, linewidth = 0.2, alpha = 0.7,
                position = position_dodge(width = 0.8)) +
   geom_smooth(aes(x = celltype_num, color = gene, group = gene),
               method = "loess", se = FALSE, linewidth = 0.6) +
   scale_fill_manual(values = gene_cols, name = "") +
   scale_color_manual(values = gene_cols, name = "") +
+  theme_bw() +
   panel_theme +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5)) +
   labs(title = "", x = NULL,
-       y = "Expression (log-normalized)", tag = "E")
+       y = "Expression (log-normalized)", tag = "F")
 
 # Panel E
 
@@ -268,7 +286,7 @@ rel_dist_df <- data.frame(x = rel_dist_data)
 
 proj_pval <- genometri_res$awhole$relative.distances.ecdf.deviation.area.p.value
 
-panel_f <- ggplot(rel_dist_df, aes(x = x)) +
+panel_g <- ggplot(rel_dist_df, aes(x = x)) +
   stat_ecdf(aes(color = "Observed"), geom = "step") +
   geom_abline(aes(color = "Expected (y = 2x)"), slope = 2, intercept = 0) +
   scale_color_manual(values = c("Observed" = "#E31A1C",
@@ -280,9 +298,9 @@ panel_f <- ggplot(rel_dist_df, aes(x = x)) +
   panel_theme +
   labs(title = "Relative distance GenometriCorr",
        x = "Fractional distance", y = "Cumulative fraction",
-       color = "", tag = "F")
+       color = "", tag = "G")
 
 
 
-g <- arrangeGrob(panel_a, panel_b, panel_c, panel_d, panel_e, panel_f, ncol = 2, nrow = 3, layout_matrix= rbind(c(1,2), c(3,4), c(5,6)))
+g <- arrangeGrob(panel_a, panel_b, panel_c, panel_d, panel_e, panel_f, panel_g, ncol = 3, nrow = 4, layout_matrix= rbind(c(1,1,1), c(2,2,3), c(4,4,4), c(5,6,7)))
 ggsave(paste0("Figure3.png"), plot = g, width = 18, height = 24, units = "cm")
