@@ -20,7 +20,14 @@ genes_of_interest <- c(
     ash1l = "ENSG00000116539",
     nsd3  = "ENSG00000147548",
     nsd1  = "ENSG00000165671",
-    setd3 = "ENSG00000183576"
+    setd3 = "ENSG00000183576",
+    mdm2  = "ENSG00000135679",
+    nr2f2 = "ENSG00000185551",
+    pdcd5 = "ENSG00000105185",
+    fastk = "ENSG00000164896",
+    cfdp1 = "ENSG00000153774"
+
+
 )
 
 # ── Read one ASO table and expand prmtrID into BED coordinates ────────────────
@@ -56,16 +63,16 @@ write_gene_bed6 <- function(results_table, gene_id, out_file) {
           "prmtrPv", "strand", "prmtrCoef")]
 
     gene_df <- gene_df[!is.na(gene_df$prmtrPv) & !is.na(gene_df$prmtrCoef), ]
-    gene_df <- gene_df[gene_df$prmtrPv < 0.05, ] # !!!!!
+    # gene_df <- gene_df[gene_df$prmtrPv < 0.05, ] # !!!!!
     gene_df$featureID <- ifelse(gene_df$prmtrPv < 0.05,
                                 paste0(gene_df$featureID, "*"), gene_df$featureID)
 
     # score column drives the track colour: saturated for significant
     # promoters, faded otherwise; sign follows the ASO-vs-control coefficient
-    gene_df$plot_color <- ifelse(gene_df$prmtrPv <  0.05 & gene_df$prmtrCoef > 0,  1,
-                          ifelse(gene_df$prmtrPv <  0.05 & gene_df$prmtrCoef < 0, -1,
-                          ifelse(gene_df$prmtrPv >= 0.05 & gene_df$prmtrCoef > 0,  0.3,
-                          ifelse(gene_df$prmtrPv >= 0.05 & gene_df$prmtrCoef < 0, -0.3, NA))))
+    gene_df$plot_color <- ifelse(gene_df$prmtrPv <  0.05 & gene_df$prmtrCoef < 0,  1,
+                          ifelse(gene_df$prmtrPv <  0.05 & gene_df$prmtrCoef > 0, -1,
+                          ifelse(gene_df$prmtrPv >= 0.05 & gene_df$prmtrCoef < 0,  0.3,
+                          ifelse(gene_df$prmtrPv >= 0.05 & gene_df$prmtrCoef > 0, -0.3, NA))))
 
     gene_df <- gene_df[, c("seqnames", "start", "end",
                            "featureID", "plot_color", "strand")]
@@ -94,3 +101,22 @@ write_all_genes <- function(results_table, aso_suffix) {
 for (aso_suffix in names(files)) {
     write_all_genes(read_dpu(files[[aso_suffix]]), aso_suffix)
 }
+
+
+pyGenomeTracks --tracks plot_rfx2.ini --region chr19:5979119-6220000 -o Figure3A.png --plotWidth 90 --dpi 130
+pyGenomeTracks --tracks plot_smyd3.ini --region chr1:245749342-246507323 -o SMYD3.png --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_ext1.ini  --region chr8:117794490-118111899 -o EXT1.png  --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_rfx2.ini  --region chr19:5993164-6199572    -o RFX2.png  --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_setd2.ini --region chr3:47016428-47170000   -o SETD2.png --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_kdm4a.ini --region chr1:43648000-43660000   -o KDM4A.png --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_kdm4b.ini --region chr12:121429096-121582286 -o KDM4B.png --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_kdm4c.ini --region chr9:6720863-7175648     -o KDM4C.png --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_ash1l.ini --region chr1:155335268-155563162 -o ASH1L.png --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_nsd3.ini  --region chr8:38269704-38383021   -o NSD3.png  --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_nsd1.ini  --region chr5:177131787-177300213 -o NSD1.png  --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_setd3.ini --region chr14:99395061-99480927  -o SETD3.png --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_mdm2.ini  --region chr12:68805000-68848000  -o MDM2.png  --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_nr2f2.ini --region chr15:96323000-96342500  -o NR2F2.png --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_pdcd5.ini --region chr19:32579000-32589500  -o PDCD5.png --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_fastk.ini --region chr7:151074000-151083000 -o FASTK.png --plotWidth 90 --dpi 300
+pyGenomeTracks --tracks plot_cfdp1.ini --region chr16:75291000-75436000  -o CFDP1.png --plotWidth 90 --dpi 300

@@ -14,9 +14,9 @@ def run(cmd, name):
     if call(cmd, shell=True) != 0:
         sys.exit(f"{name} failed")
 
-run(f"seqkit grep -r -n -p '^chr([1-9]|1[0-9]|2[0-2]|[XY])$' hg38.fa"
-    f" | bowtie2-build --threads {THREADS} - hg38_filtered",
-    f"seqkit grep | bowtie2-build")
+# run(f"seqkit grep -r -n -p '^chr([1-9]|1[0-9]|2[0-2]|[XY])$' hg38.fa"
+#     f" | bowtie2-build --threads {THREADS} - hg38_filtered",
+#     f"seqkit grep | bowtie2-build")
 
 def preprocessing(fastq1, fastq2, prefix):
     T = THREADS
@@ -24,9 +24,10 @@ def preprocessing(fastq1, fastq2, prefix):
         f"trim_galore --paired --gzip -o trimmed/ {fastq1} {fastq2}",
         f"trim_galore ({prefix})"
     )
-    # bowtie2 -> SAM-to-BAM -> name sort -> fixmate -> pos sort -> markdup
+    #bowtie2 -> SAM-to-BAM -> name sort -> fixmate -> pos sort -> markdup
     run(
         f"bowtie2 -p {T}  --local  --very-sensitive-local -N 1 -L 16 -i S,1,0.25 -D 25 -R 4  --score-min G,10,6 --mp 3,1 "# --local
+        f" --rg-id {prefix} --rg SM:{prefix} --rg PL:ILLUMINA --rg LB:{prefix} "
         f" -x /data/budkina/reference/filtered/hg38_filtered "
         f" -1 trimmed/{prefix}_R1_001_val_1.fq.gz "        # f" -1 "
         f" -2 trimmed/{prefix}_R2_001_val_2.fq.gz "        # f" -2 "
@@ -38,6 +39,16 @@ def preprocessing(fastq1, fastq2, prefix):
         f" 2> {prefix}.dedup.report",
         f"preprocessing pipeline ({prefix})"
     )
+    # # Picard deduplication on top of samtools markdup
+    # run(
+    #     f"java -jar /data/budkina/himorna_chipseq_data/new_processing/picard/picard.jar MarkDuplicates"
+    #     f" INPUT={prefix}.dedup.bam"
+    #     f" OUTPUT={prefix}.picard.dedup.bam"
+    #     f" METRICS_FILE={prefix}.picard.metrics.txt"
+    #     f" REMOVE_DUPLICATES=true"
+    #     f" 2> {prefix}.picard.report",
+    #     f"picard MarkDuplicates ({prefix})"
+    # )
     run(
         f"samtools sort -@ {T} {prefix}.dedup.bam -o {prefix}.sorted_for_index.bam"
         f" && samtools index -@ {T} {prefix}.sorted_for_index.bam"

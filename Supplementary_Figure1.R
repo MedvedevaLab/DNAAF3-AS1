@@ -88,7 +88,76 @@ panel_b <- ggplot(result, aes(x = variable , y = value , fill = Description )) +
   guides(fill=guide_legend(ncol = 2)) +
   labs(title = "GTEx11", fill = "", tag = "B") + coord_flip()
 
-# Panel C: DE genes venn diagram
+# Panel C: control vs knockdown expression at the antisense locus
+
+ENSEMBLE_GENES_INDEX <- 85706
+CONTROLS <- c(188, 204, 216, 256, 264, 270, 280, 276)
+ASO01    <- c(240, 226)
+ASO03    <- c(259, 195)
+
+matr <- read.csv(
+  "expression.count.gene.nAnT-iCAGE.ASO.human_dermal_fibroblasts.tsv",
+  sep = "\t", row.names = 1
+)
+
+matr_control <- matr[ENSEMBLE_GENES_INDEX:nrow(matr), CONTROLS]
+matr_01      <- matr[ENSEMBLE_GENES_INDEX:nrow(matr), ASO01]
+matr_03      <- matr[ENSEMBLE_GENES_INDEX:nrow(matr), ASO03]
+
+gene_map <- c(
+  ENSG00000267577 = "DNAAF3-AS1",
+  ENSG00000167646 = "DNAAF3",
+  ENSG00000129990 = "SYT5"
+)
+genes_of_interest <- names(gene_map)
+
+# one long table (gene, sample, value, ...) across all three matrices.
+# `group` collapses both ASOs into a single knockdown box; `aso` keeps them
+# distinguishable in the jittered points.
+build_long <- function(m, group, aso) {
+  sub <- m[genes_of_interest, , drop = FALSE]
+  long <- melt(as.matrix(sub), varnames = c("gene_id", "sample"),
+               value.name = "count")
+  long$group <- group
+  long$aso   <- aso
+  long
+}
+
+antisense_df <- rbind(
+  build_long(matr_control, "Control",   "Control"),
+  build_long(matr_01,      "Knockdown", "ASO01"),
+  build_long(matr_03,      "Knockdown", "ASO03")
+)
+
+antisense_df$count <- as.numeric(as.character(antisense_df$count))
+antisense_df$gene  <- factor(gene_map[as.character(antisense_df$gene_id)],
+                             levels = gene_map)
+antisense_df$group <- factor(antisense_df$group,
+                             levels = c("Control", "Knockdown"))
+antisense_df$aso   <- factor(antisense_df$aso,
+                             levels = c("Control", "ASO01", "ASO03"))
+
+panel_c <- ggplot(antisense_df, aes(x = group, y = count)) +
+  geom_boxplot(aes(fill = group), outlier.shape = NA, width = 0.6,
+               alpha = 0.6) +
+  geom_jitter(aes(colour = aso), width = 0.15, size = 1) +
+  facet_wrap(~ gene, scales = "free_y") +
+  scale_fill_manual(values = c(Control = "grey70", Knockdown = "grey40"),
+                    guide = "none") +
+  scale_colour_manual(values = c(Control = "grey40",
+                                 ASO01   = "#E41A1C",
+                                 ASO03   = "#377EB8"),
+                      name = "") +
+  # Wilcoxon test, control vs. combined knockdown, per gene facet
+  stat_compare_means(comparisons = list(c("Control", "Knockdown")),
+                     method = "wilcox.test", size = 2) +
+  labs(x = NULL, y = "CAGE expression (TPM)",
+       title = " ", tag = "C") +
+  theme_bw() +
+  panel_theme +
+  theme(strip.text = element_text(size = 5, face = "italic"))
+
+# Panel D: DE genes venn diagram
 
 fantom <- read.csv('DESeq2_genes_ASO_all.tsv', sep = '\t')
 aso01 <- dplyr::filter(fantom, perturb_id == 'ASO_G0267577_01')
@@ -100,7 +169,7 @@ aso03 <- aso03[aso03$fdr < 0.05, ]
 x <- list(ASO_G0267577_01=aso01$geneSymbol,
           ASO_G0267577_03=aso03$geneSymbol)
  
-panel_c <- ggVennDiagram(x, set_size = 2, label_size = 2, edge_size = 0.01) +
+panel_d <- ggVennDiagram(x, set_size = 2, label_size = 2, edge_size = 0.01) +
   scale_fill_gradient(low="grey90",high = "#E31A1C") +
   scale_x_continuous(expand = expansion(mult = 1)) +
   panel_theme +
@@ -110,18 +179,18 @@ panel_c <- ggVennDiagram(x, set_size = 2, label_size = 2, edge_size = 0.01) +
         axis.title.y    = element_blank(),
         axis.text.y     = element_blank(),
         plot.margin = margin(0, 0, 0, 0)) +
-  labs(tag = "C")
+  labs(tag = "D")
 
 
-panel_d <- readRDS('decoupler_ASO_G0267577_03_pathway_activities.rds') + panel_theme + labs(tag = "D")
-panel_e1 <- readRDS('decoupler_ASO_G0267577_01_p53_targets.rds') + panel_theme +  labs(title = "ASO_01 p53 target genes", tag = "E") + theme(legend.position = "bottom")
-panel_e2 <- readRDS('decoupler_ASO_G0267577_03_p53_targets.rds') + panel_theme +  labs(title = "ASO_03 p53 target genes", tag = "")+ theme(legend.position = "bottom")
+panel_e <- readRDS('decoupler_ASO_G0267577_03_pathway_activities.rds') + panel_theme + labs(tag = "E")
+panel_f1 <- readRDS('decoupler_ASO_G0267577_01_p53_targets.rds') + panel_theme +  labs(title = "ASO_01 p53 target genes", tag = "F") + theme(legend.position = "bottom")
+panel_f2 <- readRDS('decoupler_ASO_G0267577_03_p53_targets.rds') + panel_theme +  labs(title = "ASO_03 p53 target genes", tag = "") + theme(legend.position = "bottom")
 
-panel_e <- ggarrange(panel_e1, panel_e2, ncol = 2, common.legend = TRUE, legend = "bottom")
+panel_f <- ggarrange(panel_f1, panel_f2, ncol = 2, common.legend = TRUE, legend = "bottom")
 
 figure1_grob <- arrangeGrob(
-    panel_a, panel_b, panel_c, panel_d, panel_e,
+    panel_a, panel_b, panel_c, panel_d, panel_e, panel_f,
     ncol = 2, nrow = 4,
-    layout_matrix = rbind(c(1, 3), c(2, 3), c(4, 3), c(5, 5))
+    layout_matrix = rbind(c(1, 2), c(3, 2), c(4, 5), c(6, 6))
 )
 ggsave("Supplementary_Figure1.png", plot = figure1_grob, width = 18, height = 24, units = "cm")

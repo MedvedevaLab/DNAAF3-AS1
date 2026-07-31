@@ -1,29 +1,189 @@
-library(reshape2)
 library(ggplot2)
+library(ggrepel)
+library(ggpubr)
+library(grid)
+library(gridExtra)
+###################
 
-df <- read.table('GTEx_Analysis_2025-08-22_v11_RNASeQCv2.4.3_gene_median_tpm.gct', sep='\t', header=TRUE, skip=2,
-                 check.names=FALSE, stringsAsFactors=FALSE)
 
-result <- melt(as.data.frame(df[grepl("ENSG00000267577|ENSG00000167646", df$Name), ]))
+panel_theme <- theme(
+    panel.border       = element_blank(),
+    panel.grid.major   = element_blank(),
+    panel.grid.minor   = element_blank(),
+    legend.position    = "bottom",
+    legend.title       = element_text(size = 6),
+    legend.key.size    = unit(0.2, "cm"),
+    legend.text        = element_text(size = 5),
+    axis.title.x       = element_text(size = 6),
+    axis.text.x        = element_text(size = 6),
+    axis.title.y       = element_text(size = 6),
+    axis.text.y        = element_text(size = 6),
+    plot.title         = element_text(size = 6, face="plain"),
+    plot.tag           = element_text(size = 6, face = "plain"),
+    legend.spacing.y   = unit(2, "cm")
+)
 
-result$value <- log10(result$value+1)
-panel_a <- ggplot(result, aes(x = variable , y = value , fill = Description )) +
-  theme_bw() +
-  geom_bar(position = "dodge", stat = "identity") +
-  theme(panel.border = element_blank(), 
-  panel.grid.major = element_blank(),
-  panel.grid.minor = element_blank(),
-  legend.position = 'bottom',
-  text = element_text(size = 6),
-  axis.text.x = element_text(size = 5),
-  axis.ticks.x = element_blank(),
-  axis.title.y = element_text(size = 6),
-  axis.text.y = element_text(size = 6),
-  legend.key.size = unit(0.2, "cm"),
-  legend.text = element_text(size = 5),
-  plot.title = element_text(size = 6, hjust = 0.5),
-  plot.tag = element_text(size = 8, face="plain")) +
-  guides(fill=guide_legend(ncol = 2)) +
-  labs(title = "GTEx11", fill = "", tag = "") + coord_flip()
 
-ggsave("Supplementary_Figure3.png", plot = panel_a, width = 18, height = 18, units = "cm")
+# A. Alignment rate
+# B. Alignment rate
+# C. Fraction of reads in peaks
+alignment_stat <- read.csv('alignment_stat.csv', sep = '\t')
+alignment_stat$Sample_name <- c('ASO_01_signal', 'ASO_03_signal', 'NCA_01_signal', 'NCA_02_signal', 
+	'ASO_01_input', 'ASO_03_input', 'NCA_01_input', 'NCA_02_input')
+alignment_stat$Sample_name <- factor(alignment_stat$Sample_name, levels = c('ASO_01_signal', 'ASO_03_signal', 'NCA_01_signal', 'NCA_02_signal', 
+	'ASO_01_input', 'ASO_03_input', 'NCA_01_input', 'NCA_02_input'))
+p1 <- ggplot(alignment_stat, aes(x = Sample_name, y = Alignment_rate)) +
+    theme_bw() +
+    geom_bar(position = "dodge", stat = "identity") +
+    scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
+    panel_theme +
+    theme(axis.text.x = element_text(size = 6, angle = 90)) +
+    guides(fill = guide_legend(ncol = 3)) +
+    labs(title = "", x = "Experiment", y = "Alignment rate", tag = "A")
+
+p2 <- ggplot(alignment_stat, aes(x = Sample_name, y = Deduplication_rate)) +
+    theme_bw() +
+    geom_bar(position = "dodge", stat = "identity") +
+    scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
+    panel_theme +
+    theme(axis.text.x = element_text(size = 6, angle = 90)) +
+    guides(fill = guide_legend(ncol = 3)) +
+    labs(title = "", x = "Experiment", y = "Deduplication rate", tag = "B")
+
+
+frip_stat <- read.csv('frip_stat.csv', sep = '\t')
+frip_stat$Sample <- factor(frip_stat$Sample,
+    levels = c('ASO_01', 'ASO_03', 'NCA_01', 'NCA_02'))
+
+p3 <- ggplot(frip_stat, aes(x = Sample, y = FRIP)) +
+    theme_bw() +
+    geom_bar(position = "dodge", stat = "identity") +
+    geom_text(aes(label = sprintf("%.2f", FRIP)), vjust = -0.3, size = 1.8) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+    scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
+    panel_theme +
+    theme(axis.text.x = element_text(size = 6, angle = 90)) +
+    guides(fill = guide_legend(ncol = 3)) +
+    labs(title = "", x = "Experiment", y = "FRIP", tag = "C")
+
+
+p <- ggarrange(p1, p2, p3, ncol = 3, nrow = 1, common.legend = F)
+
+load("/data/budkina/himorna_chipseq_data/test/C-9_S41.spp.Rdata")
+
+# vertical lines data
+vlines_peak    <- data.frame(x = cc.peak$x,                 type = "CC Peak")
+vlines_phantom <- data.frame(x = crosscorr$phantom.cc$x,    type = "Phantom Peak")
+
+# build plot
+p41 <- ggplot(crosscorr$cross.correlation, aes(x = x, y = y)) +
+  geom_line() +
+  geom_vline(data = vlines_peak,    aes(xintercept = x), linetype = "dashed", color = "red") +
+  geom_vline(data = vlines_phantom, aes(xintercept = x), linetype = "dashed", color = "blue") +
+  labs(
+    x        = sprintf("strand-shift (%s)", paste(cc.peak$x, collapse = ",")),
+    y        = "cross-correlation",
+    title    = "ASO_01",
+    subtitle = sprintf("NSC=%g, RSC=%g, Qtag=%d",
+                       crosscorr$phantom.coeff,
+                       crosscorr$rel.phantom.coeff,
+                       crosscorr$phantom.quality.tag), tag = "D") +
+  theme_classic(base_size = 10) +
+  theme(
+    plot.title    = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    axis.title    = element_text(size  = 9),
+    plot.margin   = margin(t = 2, r = 0.5, b = 4, l = 3.5, unit = "mm")
+  )
+
+
+load("/data/budkina/himorna_chipseq_data/test/C-10_S42.spp.Rdata")
+
+# vertical lines data
+vlines_peak    <- data.frame(x = cc.peak$x,                 type = "CC Peak")
+vlines_phantom <- data.frame(x = crosscorr$phantom.cc$x,    type = "Phantom Peak")
+
+# build plot
+p42 <- ggplot(crosscorr$cross.correlation, aes(x = x, y = y)) +
+  geom_line() +
+  geom_vline(data = vlines_peak,    aes(xintercept = x), linetype = "dashed", color = "red") +
+  geom_vline(data = vlines_phantom, aes(xintercept = x), linetype = "dashed", color = "blue") +
+  labs(
+    x        = sprintf("strand-shift (%s)", paste(cc.peak$x, collapse = ",")),
+    y        = "cross-correlation",
+    title    = "ASO_03",
+    subtitle = sprintf("NSC=%g, RSC=%g, Qtag=%d",
+                       crosscorr$phantom.coeff,
+                       crosscorr$rel.phantom.coeff,
+                       crosscorr$phantom.quality.tag)
+  ) +
+  theme_classic(base_size = 10) +
+  theme(
+    plot.title    = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    axis.title    = element_text(size  = 9),
+    plot.margin   = margin(t = 2, r = 0.5, b = 4, l = 3.5, unit = "mm")
+  )
+
+load("/data/budkina/himorna_chipseq_data/test/C-19_S51.spp.Rdata")
+
+# vertical lines data
+vlines_peak    <- data.frame(x = cc.peak$x,                 type = "CC Peak")
+vlines_phantom <- data.frame(x = crosscorr$phantom.cc$x,    type = "Phantom Peak")
+
+# build plot
+p43 <- ggplot(crosscorr$cross.correlation, aes(x = x, y = y)) +
+  geom_line() +
+  geom_vline(data = vlines_peak,    aes(xintercept = x), linetype = "dashed", color = "red") +
+  geom_vline(data = vlines_phantom, aes(xintercept = x), linetype = "dashed", color = "blue") +
+  labs(
+    x        = sprintf("strand-shift (%s)", paste(cc.peak$x, collapse = ",")),
+    y        = "cross-correlation",
+    title    = "NCA_01",
+    subtitle = sprintf("NSC=%g, RSC=%g, Qtag=%d",
+                       crosscorr$phantom.coeff,
+                       crosscorr$rel.phantom.coeff,
+                       crosscorr$phantom.quality.tag)
+  ) +
+  theme_classic(base_size = 10) +
+  theme(
+    plot.title    = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    axis.title    = element_text(size  = 9),
+    plot.margin   = margin(t = 2, r = 0.5, b = 4, l = 3.5, unit = "mm")
+  )
+
+
+load("/data/budkina/himorna_chipseq_data/test/C-20_S52.spp.Rdata")
+
+# vertical lines data
+vlines_peak    <- data.frame(x = cc.peak$x,                 type = "CC Peak")
+vlines_phantom <- data.frame(x = crosscorr$phantom.cc$x,    type = "Phantom Peak")
+
+# build plot
+p44 <- ggplot(crosscorr$cross.correlation, aes(x = x, y = y)) +
+  geom_line() +
+  geom_vline(data = vlines_peak,    aes(xintercept = x), linetype = "dashed", color = "red") +
+  geom_vline(data = vlines_phantom, aes(xintercept = x), linetype = "dashed", color = "blue") +
+  labs(
+    x        = sprintf("strand-shift (%s)", paste(cc.peak$x, collapse = ",")),
+    y        = "cross-correlation",
+    title    = "NCA_02",
+    subtitle = sprintf("NSC=%g, RSC=%g, Qtag=%d",
+                       crosscorr$phantom.coeff,
+                       crosscorr$rel.phantom.coeff,
+                       crosscorr$phantom.quality.tag)
+  ) +
+  theme_classic(base_size = 10) +
+  theme(
+    plot.title    = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    axis.title    = element_text(size  = 9),
+    plot.margin   = margin(t = 2, r = 0.5, b = 4, l = 3.5, unit = "mm")
+  )
+
+
+
+g <- arrangeGrob(p, p41, p42, p43, p44, ncol = 2, nrow = 3, layout_matrix= rbind(c(1,1), c(2,3), c(4,5)))
+ggsave(paste0("Supplementary_Figure4.png"), plot = g, width = 18, height = 25, units = "cm")
+

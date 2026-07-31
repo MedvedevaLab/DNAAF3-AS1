@@ -81,10 +81,12 @@ rownames(df) <- str_split_fixed(rownames(df), "\\.", 2)[, 1]
 tiers <- classify_expression(expr_mean)
 
 saveRDS(tiers, 'expr_tiers.rds')
+tiers <- readRDS('expr_tiers.rds')
 for (tier in names(tiers)) {
   genes <- tiers[[tier]]
-  write.csv(as.data.frame(genes), paste0("ctd_", tier, ".txt"), quote = FALSE, row.names = FALSE)
+  genes <- setdiff(genes, c('ENSG00000108010'))
+  write.csv(as.data.frame(genes), paste0("Figure2A/ctd_", tier, ".txt"), quote = FALSE, row.names = FALSE)
   bed <- df[intersect(genes, rownames(df)), ]
-  write.table(bed, file = paste0("ctd_", tier, ".bed"), quote = FALSE, sep = "\t",
+  write.table(bed, file = paste0("Figure2A/ctd_", tier, ".bed"), quote = FALSE, sep = "\t",
               row.names = FALSE, col.names = FALSE)
 }

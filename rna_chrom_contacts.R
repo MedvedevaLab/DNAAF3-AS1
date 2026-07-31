@@ -54,12 +54,11 @@ rnachrom_contacts <- do.call(rbind, lapply(rnachrom_experiments, function(exp) {
 
 rnachrom_gr <- GRanges(
   seqnames = rnachrom_contacts$Chromosome,
-  ranges   = IRanges(start = rnachrom_contacts$Gene.start - 100000,
-                     end   = rnachrom_contacts$Gene.end   + 100000)
+  ranges   = IRanges(start = rnachrom_contacts$Gene.start - 10000,
+                     end   = rnachrom_contacts$Gene.end   + 10000)
 )
 
-combined_contacts <- rbind(
-  cbind(as.data.frame(radicl_gr),   source = 'radicl',   experiment = 'radicl'),
+combined_contacts <- rbind(#cbind(as.data.frame(radicl_gr),   source = 'radicl',   experiment = 'radicl'),
   cbind(as.data.frame(rnachrom_gr), source = 'rnachrom', experiment = rnachrom_contacts$experiment)
 )
 
@@ -70,7 +69,7 @@ for (chr in unique(combined_contacts$seqnames)) {
   chr_gr <- GRanges(chr, IRanges(start = chr_contacts$start, end = chr_contacts$end))
   chr_gr$source     <- chr_contacts$source
   chr_gr$experiment <- chr_contacts$experiment
-  merged_regions    <- reduce(chr_gr, min.gapwidth = 100000)
+  merged_regions    <- reduce(chr_gr, min.gapwidth = 10000)
   overlap_hits      <- findOverlaps(chr_gr, merged_regions)
   chr_gr$cluster    <- subjectHits(overlap_hits)
   cluster_df        <- as.data.frame(chr_gr)

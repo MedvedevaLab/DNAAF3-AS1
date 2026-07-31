@@ -1,31 +1,8 @@
-library(dplyr)
-library(tidyr)
-
-library(Seurat)
-
-library(ChIPseeker)
-library(ChIPpeakAnno)
-library(GenomeInfoDb)
-library(AnnotationHub)
-library(TxDb.Hsapiens.UCSC.hg38.knownGene)
-library(clusterProfiler)
-
-library(GenomicRanges)
-library(GenomicFeatures)
-library(stringr)
-library(reshape2)
-
 library(ggplot2)
-library(ggrepel)
-library(ggpubr)
+library(dplyr)
+library(png)
 library(grid)
 library(gridExtra)
-library(png)
-library(RColorBrewer)
-
-library(biomaRt)
-library(scales)
-
 
 panel_theme <- theme(
     panel.border       = element_blank(),
@@ -39,73 +16,64 @@ panel_theme <- theme(
     axis.text.x        = element_text(size = 6),
     axis.title.y       = element_text(size = 6),
     axis.text.y        = element_text(size = 6),
-    plot.title         = element_text(size = 6, face="plain"),
-    plot.tag           = element_text(size = 6, face = "plain"),
-    legend.spacing.y   = unit(2, "cm")
+    plot.title         = element_text(size = 6, face = "plain"),
+    plot.tag           = element_text(size = 6, face = "plain")
 )
 
+# Bigwigs whose metagene clusters we show. Prefixes follow peak_calling.py:
+# bw name with spaces -> "_" and no ".bw".
+PREFIXES <- c("ASO_G0267577_01_signal", "ASO_G0267577_03_signal")
+# Only these clusters are shown as metagene panels.
+CLUSTERS <- c("cluster_7", "cluster_8")
 
-# Single-cell GSE112013 dataset
-seurat_object <- readRDS('testis.rds')
-Idents(object = seurat_object) <- seurat_object@meta.data$seurat_clusters
+# ── One cluster metagene panel: read {prefix}.{cluster}.png as a raster ────────
+# (same approach as panel_a in Figure1.R)
+read_cluster_panel <- function(prefix, cluster, tag) {
+    img  <- readPNG(paste0(prefix, ".", cluster, ".png"))
+    grob <- rasterGrob(img, interpolate = TRUE)
+    ggplot(geom = "blank") +
+        annotation_custom(grob) +
+        theme_bw() +
+        panel_theme +
+        labs(title = paste(prefix, cluster), tag = tag)
+}
 
-# UMAPs with annotation
-panel_a <- DimPlot(seurat_object, reduction = "umap", group.by = "seurat_clusters", label = TRUE, repel = TRUE, raster=FALSE) + 
-panel_theme +
-  theme(plot.title = element_blank(),
-        legend.position = "none") + 
-  guides(fill = guide_legend(ncol = 3)) +
-  labs(title = "", tag = "A")
+# ── Cluster-size barplot panel (as in cluster_sizes_barplot.R) ─────────────────
+cluster_sizes_panel <- function(prefix, tag) {
+    bed <- read.table(paste0(prefix, ".clusters.bed"), sep = "\t",
+                      header = FALSE, comment.char = "#",
+                      stringsAsFactors = FALSE)
+    sizes <- data.frame(cluster = bed[[ncol(bed)]], stringsAsFactors = FALSE) %>%
+        count(cluster, name = "size") %>%
+        mutate(cluster = factor(cluster,
+            levels = unique(cluster[order(as.integer(gsub("\\D", "", cluster)))])))
 
+    ggplot(sizes, aes(x = cluster, y = size, fill = cluster)) +
+        geom_col() +
+        geom_text(aes(label = size), vjust = -0.3, size = 2) +
+        scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+        theme_bw() +
+        panel_theme +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+              legend.position = "none") +
+        labs(x = "Cluster", y = "Number of regions",
+             title = paste("Metagene cluster sizes,", prefix), tag = tag)
+}
 
-p1 <- DotPlot(seurat_object, 
- features =   c('VIM', 'CD14', 'VWF', 'ACTA2', 'DLK1', 'DAZL', 'MAGEA4', 'UTF1', 'ID4', 'FGFR3', 'KIT', 'DMRT1', 
- 	'DMRTB1', 'STRA8', 'SYCP3', 'SPO11', 'MLH3', 'ZPBP', 'TNP1', 'PRM2')) + panel_theme +
-  labs(title = "", tag = "B")
+# ── Assemble: for each prefix, cluster_7 / cluster_8 metagenes + size barplot ──
+panels <- list()
+tags   <- LETTERS
+i      <- 1
+for (prefix in PREFIXES) {
+    panels <- c(panels, list(cluster_sizes_panel(prefix, tags[i])))
+    i <- i + 1
+    for (cluster in CLUSTERS) {
+        panels <- c(panels, list(read_cluster_panel(prefix, cluster, tags[i])))
+        i <- i + 1
+    }
+}
 
-seurat_object_promoter <- readRDS('testis_promoter.rds')
-seurat_object_genebody <- readRDS('testis_genebody.rds')
-
-# H3K36me3 in promoter, HiMoRNA rho > 0.5
-p2 <- FeaturePlot(seurat_object_promoter, paste0("add_module_score", 1), pt.size = 0.5, reduction = "umap") + 
-  scale_color_gradientn(colors = rev(brewer.pal(11, "Spectral"))) +
-  panel_theme +
-  theme(text = element_text(size = 6)) +
-  labs(title = "", tag = "C")
-
-# H3K36me3 in promoter, HiMoRNA rho < -0.5
-p3 <- FeaturePlot(seurat_object_promoter, paste0("add_module_score", 2), pt.size = 0.5, reduction = "umap") + 
-  scale_color_gradientn(colors = rev(brewer.pal(11, "Spectral"))) +
-  panel_theme +
-  theme(text = element_text(size = 6)) +
-  labs(title = "", tag = "")
-
-# H3K36me3 in genebody, HiMoRNA rho > 0.5
-p4 <- FeaturePlot(seurat_object_genebody, paste0("add_module_score", 1), pt.size = 0.5, reduction = "umap") + 
-  scale_color_gradientn(colors = rev(brewer.pal(11, "Spectral"))) +
-  panel_theme +
-  theme(text = element_text(size = 6)) +
-  labs(title = "", tag = "")
-
-# H3K36me3 in genebody, HiMoRNA rho < -0.5
-p5 <- FeaturePlot(seurat_object_genebody, paste0("add_module_score", 2), pt.size = 0.5, reduction = "umap") + 
-  scale_color_gradientn(colors = rev(brewer.pal(11, "Spectral"))) +
-  panel_theme +
-  theme(text = element_text(size = 6)) +
-  labs(title = "", tag = "")
-
-#################################
-
-p <- ggarrange(p2, p3, p4, p5, ncol = 4, nrow = 1, legend="none")
-
-figure3_grob <- arrangeGrob(
-  panel_a, p1, p,
-  ncol = 2, nrow = 5,
-  layout_matrix = rbind(c(1, 1), c(1, 1), c(2, 2), c(2, 2), c(3, 3))
-)
-
-ggsave("Supplementary_Figure4.png", plot = figure3_grob, width = 16, height = 20, units = "cm")
-
-
-
-#p6, p7, p8,
+# each prefix contributes one row: size barplot, cluster_7, cluster_8
+g <- arrangeGrob(grobs = panels, ncol = 3, nrow = length(PREFIXES))
+ggsave("Supplementary_Figure5.png", plot = g,
+       width = 18, height = 12, units = "cm")

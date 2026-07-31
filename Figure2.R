@@ -1,13 +1,15 @@
 library(ggplot2)
+library(dplyr)
+library(stringr)
+library(GenomicRanges)
+library(GenomicFeatures)
+library(biomaRt)
+library(ggrepel)
 library(ggpubr)
-library(ChIPseeker)
+library(grid)
+
 library(png)
 library(gridExtra)
-library(dplyr)
-library(ChIPpeakAnno)
-library(grid)
-library("GenometriCorr")
-library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 
 panel_theme <- theme(
     panel.border       = element_blank(),
@@ -21,263 +23,267 @@ panel_theme <- theme(
     legend.text        = element_text(size = 5),
     axis.ticks.x       = element_blank(),
     axis.text.y        = element_text(size = 6),
-    axis.title.y       = element_blank(),
+    axis.title.y       = element_text(size = 6),
     plot.title         = element_text(size = 6),
-    plot.tag           = element_text(size = 6, face = "plain"),
-    legend.spacing.y   = unit(2, "cm")
+    plot.tag           = element_text(size = 6, face = "plain")
 )
 
-# Annotate genomic peaks from a data frame of coordinates.
-# `cols` selects the chrom/start/end columns (by name or position).
-get_annotation <- function(peaks, txdb, cols = c(1, 2, 3)) {
-  coords <- peaks[, cols]
-  coords <- cbind(coords, "*")
-  colnames(coords) <- c("seqnames", "start", "end", "strand")
-  coords$start <- as.numeric(coords$start)
-  coords$end   <- as.numeric(coords$end)
-  ranges <- toGRanges(coords, format = "BED")
-  peakAnno <- annotatePeak(ranges, tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
-  return(peakAnno)
+files <- c(ASO_G0267577_01 = "CTD2587H24_ASO_G0267577_01.tsv",
+           ASO_G0267577_03 = "CTD2587H24_ASO_G0267577_03.tsv")
+
+category_levels <- c("Genes with promoter switch",
+                 "... also differentially expressed",
+                 "... with an intragenic promoter")
+
+strip_version <- function(x) sub("\\..*$", "", x)
+
+gtf_file <- "gencode.v49.annotation.gtf"
+txdb        <- makeTxDbFromGFF(gtf_file)
+
+# All genes from annotatiom
+gene_bodies <- genes(txdb)
+names(gene_bodies) <- strip_version(names(gene_bodies))
+
+# Exact CDS coordinates from biomaRt
+all_genes_list <- lapply(files, function(f) read.csv(f, sep = "\t")$geneID)
+all_genes <- unique(strip_version(unlist(all_genes_list)))
+all_genes <- all_genes[grepl("^ENSG", all_genes)]
+
+cds_cache <- "biomart_cds_coords.rds"
+if (file.exists(cds_cache)) {
+  cds_raw <- readRDS(cds_cache)
+} else {
+  mart <- useMart(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+
+  # query per-exon genomic_coding_start/end
+  chunks <- split(all_genes, ceiling(seq_along(all_genes) / 500))
+  cds_raw <- do.call(rbind, lapply(chunks, function(g) {
+    getBM(
+      attributes = c("ensembl_gene_id", "ensembl_transcript_id",
+                     "chromosome_name", "strand",
+                     "genomic_coding_start", "genomic_coding_end"),
+      filters    = "ensembl_gene_id",
+      values     = g,
+      mart       = mart
+    )
+  }))
+  saveRDS(cds_raw, cds_cache)
 }
 
+cds_raw <- cds_raw[!is.na(cds_raw$genomic_coding_start) &
+                   !is.na(cds_raw$genomic_coding_end), ]
 
-gtf_name <- "gencode.v49.annotation.gtf"
-txdb <- makeTxDbFromGFF(gtf_name)
+cds_raw <- cds_raw[!grepl("_|\\.", cds_raw$chromosome_name), ]
 
-# Panel A
-himorna_peaks <- read.csv("ENSG00000267577.tsv", sep = "\t")
-himorna_peaks <- dplyr::filter(himorna_peaks, hm == "H3K36me3")
-
-himorna_peaks_pos_cor <- himorna_peaks[himorna_peaks$corr > 0, ]
-himorna_peaks_neg_cor <- himorna_peaks[himorna_peaks$corr < 0, ]
-
-himorna_peaks_pos_cor_bed <- himorna_peaks_pos_cor[, c("chrom", "start", "end")]
-write.table(
-    file      = "himorna_peaks_pos_cor.bed",
-    himorna_peaks_pos_cor_bed,
-    quote     = FALSE,
-    row.names = FALSE,
-    col.names = FALSE,
-    sep       = "\t"
+# per gene: full span of the coding region, over all coding transcripts
+cds <- data.frame(
+  ensembl_gene_id = names(tapply(cds_raw$genomic_coding_start,
+                                 cds_raw$ensembl_gene_id, min)),
+  cdsMin = as.numeric(tapply(cds_raw$genomic_coding_start,
+                             cds_raw$ensembl_gene_id, min)),
+  cdsMax = as.numeric(tapply(cds_raw$genomic_coding_end,
+                             cds_raw$ensembl_gene_id, max)),
+  cdsChr = paste0("chr", tapply(cds_raw$chromosome_name,
+                                cds_raw$ensembl_gene_id, function(x) x[1])),
+  cdsStrand = as.numeric(tapply(cds_raw$strand,
+                                cds_raw$ensembl_gene_id, function(x) x[1])),
+  stringsAsFactors = FALSE
 )
 
+promoters_in_genebody <- function(df) {
+  coords <- as.data.frame(str_split_fixed(df$prmtrID, "_", 4))
+  colnames(coords) <- c("seqnames", "start", "end", "strand")
+  prmtr <- GRanges(seqnames = coords$seqnames,
+                   ranges   = IRanges(start = as.numeric(coords$start) + 1,
+                                      end   = as.numeric(coords$end)),
+                   strand   = coords$strand)
 
-himorna_peaks_neg_cor_bed <- himorna_peaks_neg_cor[, c("chrom", "start", "end")]
+  # Exclude FANTOM-CAT CATG*
+  df$geneID_clean <- strip_version(df$geneID)
+  idx <- match(df$geneID_clean, names(gene_bodies))
+  ok  <- !is.na(idx)
+
+  # Add CDS span
+  ci <- match(df$geneID_clean, cds$ensembl_gene_id)
+  df$cdsChr <- cds$cdsChr[ci]
+  df$cdsMin <- cds$cdsMin[ci]
+  df$cdsMax <- cds$cdsMax[ci]
+
+  # Is the gene present in the CDS table
+  df$isCoding <- !is.na(ci)
+
+  # Does the promoter overlap the coding region
+  df$inCDS <- df$isCoding &
+    as.character(seqnames(prmtr)) == df$cdsChr &
+    start(prmtr) <= df$cdsMax &
+    end(prmtr)   >= df$cdsMin
+
+  df$inCDS[is.na(df$inCDS)] <- FALSE
+
+  df$geneID_clean <- NULL
+  df[ok,]
+}
+
+#  Differentially expressed genes per ASO
+fantom <- read.csv("DESeq2_genes_ASO_all.tsv", sep = "\t")
+
+de_genes <- lapply(names(files), function(aso) {
+  d <- dplyr::filter(fantom, perturb_id == aso, !is.na(fdr), fdr < 0.05)
+  unique(strip_version(d$geneID))
+})
+names(de_genes) <- names(files)
+
+
+#   aso_data[[aso]]$df   – Promoter table
+#   aso_data[[aso]]$sig  – Significant promoter switch (geneFDR < 0.05)
+#   aso_data[[aso]]$body – those promoters that fall inside the gene body, annotated with the CDS span (inCDS)
+aso_data <- lapply(names(files), function(aso) {
+  df <- read.csv(files[[aso]], sep = "\t")
+  df <- df[!is.na(df$geneFDR) & !is.na(df$prmtrPv) & !is.na(df$prmtrCoef), ]
+
+  sig  <- df[df$geneFDR < 0.05, ]
+  body <- promoters_in_genebody(sig)
+  body$aso    <- aso
+  body$sample <- paste0("CTD2587H24_", aso) 
+
+  list(df = df, sig = sig, body = body)
+})
+names(aso_data) <- names(files)
+
 
 write.table(
-    file      = "himorna_peaks_neg_cor.bed",
-    himorna_peaks_neg_cor_bed,
-    quote     = FALSE,
-    row.names = FALSE,
-    col.names = FALSE,
-    sep       = "\t"
-)
-
-rownames(himorna_peaks_pos_cor) <- himorna_peaks_pos_cor$X
-rownames(himorna_peaks_neg_cor) <- himorna_peaks_neg_cor$X
-
-peak_anno_pos_cor <- get_annotation(himorna_peaks_pos_cor, txdb, c("chrom", "start", "end"))
-peak_anno_neg_cor <- get_annotation(himorna_peaks_neg_cor, txdb, c("chrom", "start", "end"))
-
-anno_stat_pos       <- peak_anno_pos_cor@annoStat
-anno_stat_pos$Type  <- "rho > 0"
-
-anno_stat_neg       <- peak_anno_neg_cor@annoStat
-anno_stat_neg$Type  <- "rho < 0"
-
-anno_stat_combined           <- rbind(anno_stat_pos, anno_stat_neg)
-anno_stat_combined$Type      <- factor(anno_stat_combined$Type, levels = c("rho > 0", "rho < 0"))
-anno_stat_combined$Frequency <- as.numeric(anno_stat_combined$Frequency)
-anno_stat_combined$Feature   <- factor(anno_stat_combined$Feature,
-    levels = rev(c("Promoter", "5' UTR", "1st Exon", "1st Intron",
-                   "Other Exon", "Other Intron", "3' UTR", "Distal Intergenic")))
-
-anno_stat_combined <- as.data.frame(tidyr::complete(anno_stat_combined, Type, Feature))
-
-write.table(
-    file      = "Supplementary_Table2.csv",
-    rbind(as.data.frame(peak_anno_pos_cor@anno),as.data.frame(peak_anno_neg_cor@anno)),
+    file      = "SupplementaryTable2C.csv",
+    aso_data$ASO_G0267577_01$body,
     quote     = FALSE,
     row.names = FALSE,
     col.names = TRUE,
     sep       = "\t"
 )
 
-panel_a <- ggplot(anno_stat_combined, aes(x = Feature, y = Frequency, fill = Type)) +
-    theme_bw() +
-    geom_bar(position = "dodge", stat = "identity") +
-    scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
-    panel_theme +
-    guides(fill = guide_legend(ncol = 3)) +
-    labs(title = "HiMoRNA peaks annotation", y = "Frequency (%)",
-         fill = "Spearman correlation", tag = "B") +
-    coord_flip()
+write.table(
+    file      = "SupplementaryTable2D.csv",
+    aso_data$ASO_G0267577_03$body,
+    quote     = FALSE,
+    row.names = FALSE,
+    col.names = TRUE,
+    sep       = "\t"
+)
+
+res <- do.call(rbind, lapply(aso_data, function(x) x$body))
+
+df1 <- aso_data$ASO_G0267577_01$body[aso_data$ASO_G0267577_01$body$inCDS,]
+df3 <- aso_data$ASO_G0267577_03$body[aso_data$ASO_G0267577_03$body$inCDS,]
+
+intersect(head( df1[order(-abs(df1$prmtrCoef)),'geneName'], 30),head( df3[order(-abs(df3$prmtrCoef)),'geneName'],30))
+
+count_categories <- function(aso) {
+  d <- aso_data[[aso]]
+
+  genes_sig <- unique(strip_version(d$sig$geneID))
+  genes_de  <- intersect(genes_sig, de_genes[[aso]])
+  genes_body <- unique(strip_version(d$body$geneID[d$body$inCDS]))
+
+  data.frame(
+    aso      = aso,
+    category = category_levels,
+    n        = c(length(genes_sig), length(genes_de), length(genes_body)),
+    stringsAsFactors = FALSE
+  )
+}
+
+counts <- do.call(rbind, lapply(names(files), count_categories))
+counts$category <- factor(counts$category,
+                          levels = category_levels)
+print(counts)
+
+# Panel A 
+panelA <- ggplot(counts, aes(x = aso, y = n, fill = category)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = n),
+            position = position_dodge(width = 0.8),
+            vjust = -0.3, size = 2) +
+  scale_fill_manual(values = c("Genes with promoter switch" = "#4C72B0",
+    "... also differentially expressed" = "#DD8452",
+    "... with an intragenic promoter" = "#55A868")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+  labs(x = NULL, y = "Number of genes", fill = NULL, tag = "A") +
+  theme_classic() +
+  panel_theme +
+  guides(fill = guide_legend(ncol = 1))
 
 
-# Panel B
-
-diffbind_results <- read.csv('/data/budkina/himorna_chipseq_data/test/CTD-2587H24.5_H3K36me3_differential_peaks.csv', sep = '\t')
-diffbind_sig <- diffbind_results[diffbind_results$FDR < 0.05,] # & abs(diffbind_results$Fold) > 1
-
-diffbind_sig$significance <- "Unchanged"
-diffbind_sig$significance[diffbind_sig$Fold < 0] <- "Lost"
-diffbind_sig$significance[diffbind_sig$Fold > 0] <- "Gained"
-diffbind_sig$significance <- factor(diffbind_sig$significance, levels = c( "Gained", "Lost", "Unchanged"))
-
-colors <- c( "Gained" = "#E31A1C", "Lost" =  "#1F78B4", "Unchanged" = "#CCCCCC")
-
-panel_b <- ggplot(diffbind_sig, aes(x = Conc, y = Fold, color = significance)) +
-  theme_bw() +
-  geom_point(alpha = 0.6, size = 0.8) +
-  scale_color_manual(values = colors, name = "Peak Status") +
-  geom_hline(yintercept = c(-1, 1), linetype = "dashed", color = "black", alpha = 0.7) +
-  geom_hline(yintercept = 0, linetype = "solid", color = "black", alpha = 0.5) +
-  guides(color = guide_legend(override.aes = list(size = 3, alpha = 1))) +  
-  theme(panel.border = element_blank(),
-      panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank(),
-      axis.title.x = element_text(size = 6),
-      axis.text.x = element_text(size = 6, vjust = 0.5, hjust = 1),
-      legend.title = element_text(size = 6),
-      legend="bottom",
-      axis.title.y = element_text(size = 6),
-      axis.text.y = element_text(size = 6),
-      legend.text = element_text(size = 6),
-      plot.title = element_text(size = 6),
-      legend.key.size = unit(0.2, "cm"),
-      plot.tag = element_text(size = 6, face="plain")) + 
-  labs(title = "",
-        x = "Log concentration",
-        y = "Log2FC (KD/Control)",
-        tag = "B")
-
-# D. Metagene
-
-img <- readPNG('Figure2A/Figure2A1.png')
+# Panel B: metascape analysis
+img <- readPNG('Figure2B.png')
 g11 <- rasterGrob(img,
-  interpolate=TRUE, width = unit(3.5,"in"), height=unit(2.2,"in"))
+  interpolate=TRUE, width = unit(3,"in"), height=unit(1.2,"in"))
 
-p11 <- ggplot(geom="blank") +
-  annotation_custom(g11) + 
-  theme_bw() + 
-  panel_theme + 
-  theme(
-      axis.title.x = element_blank(),
-      legend.key.size = unit(0.2, "cm"),
-      legend.text = element_text(size = 5)) + labs(tag = "C")
-
-img <- readPNG('Figure2A/Figure2A2.png')
-g12 <- rasterGrob(img,
-  interpolate=TRUE, width = unit(3.5,"in"), height=unit(2.2,"in"))
-
-p12 <- ggplot(geom="blank") +
-  annotation_custom(g12) + 
+panelB<- ggplot(geom="blank") +
+  annotation_custom(g11) +
   theme_bw() +
   panel_theme +
   theme(
       axis.title.x = element_blank(),
       legend.key.size = unit(0.2, "cm"),
-      legend.text = element_text(size = 5)) + labs(tag = "")
+      legend.text = element_text(size = 5)) + labs(tag = "B")
 
-panel_c <- ggarrange(p11, p12, ncol = 2, nrow = 1, common.legend = TRUE, legend="bottom")
+# Panels C and D: promoter volcanoes 
+volcano_data <- function(aso) {
+  d         <- aso_data[[aso]]
+  df        <- d$df
+  genes_sig <- unique(d$sig$geneID)
 
+  # promoters activated in the coding region
+  in_cds  <- d$body$prmtrID[d$body$inCDS]
 
-gained <- diffbind_sig[diffbind_sig$Fold > 0,]
-lost <- diffbind_sig[diffbind_sig$Fold < 0,] 
-anno_gained <- get_annotation(gained, txdb)
-anno_lost <- get_annotation(lost, txdb)
+  df <- df[df$geneID %in% genes_sig, ]
+  df$class <- ifelse((df$prmtrID %in% in_cds) & (df$prmtrPv < 0.05), "Activated in coding region",
+              ifelse(df$prmtrPv < 0.05,      "Significant promoter",
+                                             "Not significant"))
+  df$class <- factor(df$class, levels = c("Activated in coding region",
+                                          "Significant promoter",
+                                          "Not significant"))
+  df$aso <- aso
+  df
+}
 
-annotation_gained <- anno_gained@annoStat
-annotation_gained$Type <- 'Gained'
-annotation_lost <- anno_lost@annoStat
-annotation_lost$Type <- 'Lost'
-annotation <- rbind(annotation_gained, annotation_lost)
-annotation$Feature <- factor(annotation$Feature, levels = c("Promoter",
-"5' UTR",
-"1st Exon",
-"1st Intron",
-"Other Exon",
-"Other Intron",
-"3' UTR",
-"Downstream (<=300)",
-"Distal Intergenic"
-))
+n_label <- 20   # labels per ranking, per panel
 
-annotation$Type <- factor(annotation$Type, levels = c('Gained', 'Lost'))
+volcano_panel <- function(aso, tag) {
+  d <- volcano_data(aso)
 
-cols <- rev(c("#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F", "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F"))
-panel_d <- ggplot(annotation, aes(x = Type, y = Frequency, fill =  Feature)) + 
-  theme_bw() + 
-  geom_bar(position="stack", stat="identity") +
-  scale_fill_manual(values=rev(cols), guide = guide_legend(reverse = TRUE), drop = FALSE) +
-  theme(panel.border = element_blank(),
-      panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank(),
-      axis.title.x = element_blank(),
-      axis.text.x = element_text(size = 6, vjust = 0.5, hjust = 1),
-      legend.title = element_text(size = 6),
-      legend="bottom",
-      axis.text.y = element_text(size = 6),
-      legend.text = element_text(size = 6),
-      plot.title = element_text(size = 6),
-      legend.key.size = unit(0.2, "cm"),
-      plot.tag = element_text(size = 6, face="plain")) + 
-      labs(title = "H3K36me3 peaks annotation", tag = "D")
+  # label the coding-region activations with the largest coefficient and,
+  # separately, the ones with the smallest p-value
+  hits    <- d[d$class == "Activated in coding region", ]
+  # hits    <- hits[!duplicated(hits$geneName), ]
+  by_coef <- head(hits[order(-abs(hits$prmtrCoef)), ], n_label)
+  by_pv   <- head(hits[order(hits$prmtrPv), ],    n_label)
+  lab     <- unique(rbind(by_coef, by_pv))
+  print(head(hits[order(-hits$prmtrCoef), ]))
+  ggplot(d, aes(x = prmtrCoef, y = -log10(prmtrPv))) +
+    geom_point(data = subset(d, class == "Not significant"),
+               colour = "grey80", size = 0.4) +
+    geom_point(data = subset(d, class == "Significant promoter"),
+               colour = "#4C72B0", size = 0.5) +
+    geom_point(data = subset(d, class == "Activated in coding region"),
+               colour = "#C44E52", size = 0.8) +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed",
+               linewidth = 0.2, colour = "grey40") +
+    geom_vline(xintercept = 0, linetype = "dashed",
+               linewidth = 0.2, colour = "grey40") +
+    ggrepel::geom_text_repel(data = lab, aes(label = geneName),
+                             size = 1.7, min.segment.length = 0,
+                             segment.size = 0.2, max.overlaps = Inf,
+                             box.padding = 0.2) +
+    labs(x = "Promoter coefficient", y = expression(-log[10] ~ italic(p)),
+         title = aso, tag = tag) +
+    theme_classic() +
+    panel_theme +
+    theme(legend.position = "none")
+}
 
-
-
-lost_counts <- diffbind_sig %>%#  dplyr::filter(Fold < 0) %>%
-  dplyr::count(seqnames, name = "n_lost")
-lost_counts$seqnames <- as.character(lost_counts$seqnames)
-
-
-# Natural chromosome ordering (chr1..chr22, chrX, chrY, ...)
-chrom_levels <- unique(lost_counts$seqnames)
-chrom_order  <- chrom_levels[order(
-    suppressWarnings(as.numeric(gsub("chr", "", chrom_levels))),
-    gsub("chr", "", chrom_levels))]
-
-ref_chr <- if ("chr19" %in% chrom_order) "chr19" else "19"
-
-chrom_lengths <- seqlengths(TxDb.Hsapiens.UCSC.hg38.knownGene)
-
-# Number of genes per chromosome (hg38 knownGene annotation)
-genes_gr <- genes(TxDb.Hsapiens.UCSC.hg38.knownGene,
-                  single.strand.genes.only = TRUE)
-genes_per_chrom <- table(as.character(seqnames(genes_gr)))
-
-# Match chromosome names to the hg38 lengths (add "chr" prefix if missing)
-lookup <- ifelse(grepl("^chr", lost_counts$seqnames),
-                 lost_counts$seqnames, paste0("chr", lost_counts$seqnames))
-lost_counts$chrom_length <- chrom_lengths[lookup]
-lost_counts$n_genes      <- as.integer(genes_per_chrom[lookup])
-lost_counts <- lost_counts[!is.na(lost_counts$chrom_length) &
-                           !is.na(lost_counts$n_genes) &
-                           lost_counts$n_genes > 0, ]
-# Lost peaks per Mb per gene: normalize by both chromosome length and gene count
-lost_counts$lost_per_mb  <- lost_counts$n_lost / lost_counts$chrom_length * 1e6 /
-                            lost_counts$n_genes
+panelC <- volcano_panel("ASO_G0267577_01", "C")
+panelD <- volcano_panel("ASO_G0267577_03", "D")
 
 
-lost_counts$seqnames  <- factor(lost_counts$seqnames, levels = chrom_order)
-lost_counts$highlight <- ifelse(as.character(lost_counts$seqnames) == ref_chr,
-                                "chr19", "other")
-
-panel_e <- ggplot(lost_counts, aes(x = seqnames, y = lost_per_mb, fill = highlight)) +
-  theme_bw() +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(values = c("chr19" = "#1F78B4", "other" = "grey70"), guide = "none") +
-  panel_theme +
-  theme(axis.title.x = element_text(size = 6),
-        axis.title.y = element_text(size = 6),
-        axis.text.x  = element_text(size = 5, angle = 90, hjust = 1, vjust = 0.5)) +
-  labs(title = "Lost peaks (Fold<0) per Mb per gene by chromosome",
-       x = "Chromosome", y = "Lost peaks per Mb per gene", tag = "E")
-
-
-
-
-g <- arrangeGrob(panel_a, panel_b, panel_c, panel_d, panel_e, ncol = 2, nrow = 3, layout_matrix= rbind(c(1,2), c(3,3), c(4,5)))
-ggsave(paste0("Figure2.png"), plot = g, width = 18, height = 24, units = "cm")
-
-# pyGenomeTracks --tracks plot_rfx2.ini --region chr19:5979119-6220000 -o Figure3A.png --plotWidth 90 --dpi 130
+g <- arrangeGrob(panelA, panelB, panelC, panelD, ncol = 2, nrow = 3, layout_matrix= rbind(c(1,2), c(3,4), c(3,4)))
+ggsave(paste0("Figure2.png"), plot = g, width = 18, height = 20, units = "cm")

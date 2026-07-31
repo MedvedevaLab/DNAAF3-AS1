@@ -1,8 +1,28 @@
 library(ggplot2)
-library(ggrepel)
+library(magick)
+library(ggbreak)
 library(ggpubr)
-library(grid)
+library(ChIPseeker)
+library(png)
 library(gridExtra)
+library(reshape2)
+library(AnnotationHub)
+library(biomaRt)
+library(scales)
+library(RColorBrewer)
+# library(ChIPpeakAnno)
+library(stringr)
+library(GenomeInfoDb)
+library(dplyr)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(ChIPpeakAnno)
+library(png)
+library(grid)
+library(ggsankey)
+library(ggbreak) 
+library("ggVennDiagram")
+
+library(UpSetR)
 
 panel_theme <- theme(
     panel.border       = element_blank(),
@@ -21,162 +41,126 @@ panel_theme <- theme(
     legend.spacing.y   = unit(2, "cm")
 )
 
-# A. Alignment rate
-# B. Alignment rate
-# C. Fraction of reads in peaks
-alignment_stat <- read.csv('alignment_stat.csv', sep = '\t')
-alignment_stat$Sample_name <- c('ASO_01_signal', 'ASO_03_signal', 'NCA_01_signal', 'NCA_02_signal', 
-	'ASO_01_input', 'ASO_03_input', 'NCA_01_input', 'NCA_02_input')
-alignment_stat$Sample_name <- factor(alignment_stat$Sample_name, levels = c('ASO_01_signal', 'ASO_03_signal', 'NCA_01_signal', 'NCA_02_signal', 
-	'ASO_01_input', 'ASO_03_input', 'NCA_01_input', 'NCA_02_input'))
-p1 <- ggplot(alignment_stat, aes(x = Sample_name, y = Alignment_rate)) +
-    theme_bw() +
-    geom_bar(position = "dodge", stat = "identity") +
-    scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
-    panel_theme +
-    theme(axis.text.x = element_text(size = 6, angle = 90)) +
-    guides(fill = guide_legend(ncol = 3)) +
-    labs(title = "", x = "Experiment", y = "Alignment rate", tag = "A")
 
-p2 <- ggplot(alignment_stat, aes(x = Sample_name, y = Deduplication_rate)) +
-    theme_bw() +
-    geom_bar(position = "dodge", stat = "identity") +
-    scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
-    panel_theme +
-    theme(axis.text.x = element_text(size = 6, angle = 90)) +
-    guides(fill = guide_legend(ncol = 3)) +
-    labs(title = "", x = "Experiment", y = "Deduplication rate", tag = "B")
+df <- read.csv('cell_profiler.csv', sep = '\t', dec = ',')
+df <- df[df$KD.pubID == 'CTD-2587H24.5', ]
+df <- df[df$perturb_id %in% c("ASO_G0267577_01", "ASO_G0267577_03"),]
 
+params <- c(
+  "GrowthRate",
+  "Area",
+  "Compactness",
+  "Eccentricity",
+  "Extent",
+  "FormFactor",
+  "MajorAxisLength",
+  "MaxFeretDiameter",
+  "MaximumRadius",
+  "MedianRadius",
+  "MinFeretDiameter",
+  "MinorAxisLength",
+  "Perimeter",
+  "Solidity"
+)
 
-frip_stat <- read.csv('frip_stat.csv', sep = '\t')
+mean_cols <- paste0(params, "_mean")
+fdr_cols  <- paste0(params, "_fdr")
 
-p3 <- ggplot(frip_stat, aes(x = Sample, y = FRIP)) +
-    theme_bw() +
-    geom_bar(position = "dodge", stat = "identity") +
-    scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
-    panel_theme +
-    theme(axis.text.x = element_text(size = 6, angle = 90)) +
-    guides(fill = guide_legend(ncol = 3)) +
-    labs(title = "", x = "Experiment", y = "FRIP", tag = "C")
+# means -> long
+mean_long <- melt(df[, c("perturb_id", mean_cols)],
+                  id.vars = "perturb_id",
+                  variable.name = "parameter",
+                  value.name = "mean")
+mean_long$parameter <- sub("_mean$", "", mean_long$parameter)
 
+# fdr -> long
+fdr_long <- melt(df[, c("perturb_id", fdr_cols)],
+                 id.vars = "perturb_id",
+                 variable.name = "parameter",
+                 value.name = "fdr")
+fdr_long$parameter <- sub("_fdr$", "", fdr_long$parameter)
 
-p <- ggarrange(p1, p2, p3, ncol = 3, nrow = 1, common.legend = F)
+# combine
+plot_df <- merge(mean_long, fdr_long, by = c("perturb_id", "parameter"))
 
-load("C-9_.spp.Rdata")
+# keep column order as requested
+plot_df$parameter <- factor(plot_df$parameter, levels = params)
 
-# vertical lines data
-vlines_peak    <- data.frame(x = cc.peak$x,                 type = "CC Peak")
-vlines_phantom <- data.frame(x = crosscorr$phantom.cc$x,    type = "Phantom Peak")
+# significance stars
+plot_df$star <- ifelse(!is.na(plot_df$fdr) & plot_df$fdr < 0.05, "*", "")
 
-# build plot
-p41 <- ggplot(crosscorr$cross.correlation, aes(x = x, y = y)) +
-  geom_line() +
-  geom_vline(data = vlines_peak,    aes(xintercept = x), linetype = "dashed", color = "red") +
-  geom_vline(data = vlines_phantom, aes(xintercept = x), linetype = "dashed", color = "blue") +
-  labs(
-    x        = sprintf("strand-shift (%s)", paste(cc.peak$x, collapse = ",")),
-    y        = "cross-correlation",
-    title    = "ASO_01",
-    subtitle = sprintf("NSC=%g, RSC=%g, Qtag=%d",
-                       crosscorr$phantom.coeff,
-                       crosscorr$rel.phantom.coeff,
-                       crosscorr$phantom.quality.tag), tag = "D") +
-  theme_classic(base_size = 10) +
+panel_a <- ggplot(plot_df, aes(x = parameter, y = perturb_id, fill = mean)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = star), size = 6, vjust = 0.75) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 1) +
+  labs(x = NULL, y = NULL, fill = "mean") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Panel A
+img <- readPNG('MDM2.png')
+g1 <- rasterGrob(img,
+  interpolate=TRUE, width = unit(6,"in"), height=unit(1.2,"in"))
+
+panel_b1<- ggplot(geom="blank") +
+  annotation_custom(g1) +
+  theme_bw() +
+  panel_theme +
   theme(
-    plot.title    = element_text(hjust = 0.5),
-    plot.subtitle = element_text(hjust = 0.5),
-    axis.title    = element_text(size  = 9),
-    plot.margin   = margin(t = 2, r = 0.5, b = 4, l = 3.5, unit = "mm")
-  )
+      axis.title.x = element_blank(),
+      legend.key.size = unit(0.2, "cm"),
+      legend.text = element_text(size = 5)) + labs(tag = "B")
 
 
-load("C-10.spp.Rdata")
+img <- readPNG('NR2F2.png')
+g2 <- rasterGrob(img,
+  interpolate=TRUE, width = unit(6,"in"), height=unit(1.2,"in"))
 
-# vertical lines data
-vlines_peak    <- data.frame(x = cc.peak$x,                 type = "CC Peak")
-vlines_phantom <- data.frame(x = crosscorr$phantom.cc$x,    type = "Phantom Peak")
-
-# build plot
-p42 <- ggplot(crosscorr$cross.correlation, aes(x = x, y = y)) +
-  geom_line() +
-  geom_vline(data = vlines_peak,    aes(xintercept = x), linetype = "dashed", color = "red") +
-  geom_vline(data = vlines_phantom, aes(xintercept = x), linetype = "dashed", color = "blue") +
-  labs(
-    x        = sprintf("strand-shift (%s)", paste(cc.peak$x, collapse = ",")),
-    y        = "cross-correlation",
-    title    = "ASO_03",
-    subtitle = sprintf("NSC=%g, RSC=%g, Qtag=%d",
-                       crosscorr$phantom.coeff,
-                       crosscorr$rel.phantom.coeff,
-                       crosscorr$phantom.quality.tag)
-  ) +
-  theme_classic(base_size = 10) +
+panel_b2<- ggplot(geom="blank") +
+  annotation_custom(g2) +
+  theme_bw() +
+  panel_theme +
   theme(
-    plot.title    = element_text(hjust = 0.5),
-    plot.subtitle = element_text(hjust = 0.5),
-    axis.title    = element_text(size  = 9),
-    plot.margin   = margin(t = 2, r = 0.5, b = 4, l = 3.5, unit = "mm")
-  )
+      axis.title.x = element_blank(),
+      legend.key.size = unit(0.2, "cm"),
+      legend.text = element_text(size = 5)) + labs(tag = "B")
 
-load("C-19.spp.Rdata")
 
-# vertical lines data
-vlines_peak    <- data.frame(x = cc.peak$x,                 type = "CC Peak")
-vlines_phantom <- data.frame(x = crosscorr$phantom.cc$x,    type = "Phantom Peak")
+img <- readPNG('FASTK.png')
+g3 <- rasterGrob(img,
+  interpolate=TRUE, width = unit(6,"in"), height=unit(1.2,"in"))
 
-# build plot
-p43 <- ggplot(crosscorr$cross.correlation, aes(x = x, y = y)) +
-  geom_line() +
-  geom_vline(data = vlines_peak,    aes(xintercept = x), linetype = "dashed", color = "red") +
-  geom_vline(data = vlines_phantom, aes(xintercept = x), linetype = "dashed", color = "blue") +
-  labs(
-    x        = sprintf("strand-shift (%s)", paste(cc.peak$x, collapse = ",")),
-    y        = "cross-correlation",
-    title    = "NCA_01",
-    subtitle = sprintf("NSC=%g, RSC=%g, Qtag=%d",
-                       crosscorr$phantom.coeff,
-                       crosscorr$rel.phantom.coeff,
-                       crosscorr$phantom.quality.tag)
-  ) +
-  theme_classic(base_size = 10) +
+panel_b3<- ggplot(geom="blank") +
+  annotation_custom(g3) +
+  theme_bw() +
+  panel_theme +
   theme(
-    plot.title    = element_text(hjust = 0.5),
-    plot.subtitle = element_text(hjust = 0.5),
-    axis.title    = element_text(size  = 9),
-    plot.margin   = margin(t = 2, r = 0.5, b = 4, l = 3.5, unit = "mm")
-  )
+      axis.title.x = element_blank(),
+      legend.key.size = unit(0.2, "cm"),
+      legend.text = element_text(size = 5)) + labs(tag = "B")
 
 
-load("C-20.spp.Rdata")
+img <- readPNG('CFDP1.png')
+g4 <- rasterGrob(img,
+  interpolate=TRUE, width = unit(6,"in"), height=unit(1.2,"in"))
 
-# vertical lines data
-vlines_peak    <- data.frame(x = cc.peak$x,                 type = "CC Peak")
-vlines_phantom <- data.frame(x = crosscorr$phantom.cc$x,    type = "Phantom Peak")
-
-# build plot
-p44 <- ggplot(crosscorr$cross.correlation, aes(x = x, y = y)) +
-  geom_line() +
-  geom_vline(data = vlines_peak,    aes(xintercept = x), linetype = "dashed", color = "red") +
-  geom_vline(data = vlines_phantom, aes(xintercept = x), linetype = "dashed", color = "blue") +
-  labs(
-    x        = sprintf("strand-shift (%s)", paste(cc.peak$x, collapse = ",")),
-    y        = "cross-correlation",
-    title    = "NCA_02",
-    subtitle = sprintf("NSC=%g, RSC=%g, Qtag=%d",
-                       crosscorr$phantom.coeff,
-                       crosscorr$rel.phantom.coeff,
-                       crosscorr$phantom.quality.tag)
-  ) +
-  theme_classic(base_size = 10) +
+panel_b4<- ggplot(geom="blank") +
+  annotation_custom(g4) +
+  theme_bw() +
+  panel_theme +
   theme(
-    plot.title    = element_text(hjust = 0.5),
-    plot.subtitle = element_text(hjust = 0.5),
-    axis.title    = element_text(size  = 9),
-    plot.margin   = margin(t = 2, r = 0.5, b = 4, l = 3.5, unit = "mm")
-  )
+      axis.title.x = element_blank(),
+      legend.key.size = unit(0.2, "cm"),
+      legend.text = element_text(size = 5)) + labs(tag = "B")
+
+panel_b <- ggarrange(panel_b1, panel_b2, panel_b3, panel_b4, ncol = 1, common.legend = TRUE, legend = "bottom")
 
 
+figure2_grob <- arrangeGrob(
+    panel_a, panel_b1, panel_b2, panel_b3, panel_b4,
+    ncol = 1, nrow = 5,
+    layout_matrix = rbind(c(1), c(2), c(3), c(4), c(5))
+)
+ggsave("Supplementary_Figure2.png", plot = figure2_grob, width = 18, height = 24, units = "cm")
 
-g <- arrangeGrob(p, p41, p42, p43, p44, ncol = 2, nrow = 3, layout_matrix= rbind(c(1,1), c(2,3), c(4,5)))
-ggsave(paste0("Supplementary_Figure2.png"), plot = g, width = 18, height = 25, units = "cm")
 
