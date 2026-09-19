@@ -4,13 +4,16 @@ library(tibble)
 library(tidyr)
 library(ggplot2)
 
+cb_blue   <- "#0072B2"
+cb_orange <- "#D55E00"
+
 # Bar plot of pathway activities
 plot_pathways <- function(pathway_df, aso_id) {
     p_bar <- ggplot(pathway_df, aes(x = score, y = source, fill = score)) +
         geom_col() +
         geom_vline(xintercept = 0, color = "black", linewidth = 0.3) +
-        scale_fill_gradient2(low = "#377EB8", mid = "whitesmoke",
-                             high = "#E41A1C", midpoint = 0) +
+        scale_fill_gradient2(low = cb_blue, mid = "grey95",
+                             high = cb_orange, midpoint = 0) +
         theme_bw() +
         theme(panel.grid = element_blank()) +
         labs(x = "Pathway activity (mlm score)", y = "",
@@ -23,7 +26,7 @@ plot_pathways <- function(pathway_df, aso_id) {
 }
 
 # Target-gene scatter for the most responsive pathways
-plot_targets <- function(top_pathway, net, aso_id) {
+plot_targets <- function(deg, top_pathway, net, aso_id) {
     df <- net %>%
         filter(source == top_pathway) %>%
         inner_join(rownames_to_column(deg, "target"), by = "target") %>%
@@ -36,8 +39,8 @@ plot_targets <- function(top_pathway, net, aso_id) {
         ggrepel::geom_text_repel(
             data = df %>% arrange(desc(abs(weight * stat))) %>% head(15),
             aes(label = target), size = 2.5, max.overlaps = 20) +
-        scale_color_manual(values = c(Concordant = "#E41A1C",
-                                      Discordant = "#377EB8")) +
+        scale_color_manual(values = c(Concordant = cb_orange,
+                                      Discordant = cb_blue)) +
         theme_bw() +
         labs(x = paste0(top_pathway, " weight"),
              y = "Gene statistic (signed -log10 FDR)",
@@ -77,16 +80,16 @@ run_aso <- function(deseq, net, aso_id) {
     
     top_pathway <- bar_df$source[which.max(bar_df$score)]
     top_pathway <- as.character(top_pathway)
-    plot_targets(top_pathway, net, aso_id)
+    plot_targets(deg, top_pathway, net, aso_id)
 
     top_pathway <- bar_df$source[which.min(bar_df$score)]
     top_pathway <- as.character(top_pathway)
-    plot_targets(top_pathway, net, aso_id)
+    plot_targets(deg, top_pathway, net, aso_id)
 
 }
 
 # Load DE results 
-deseq <- read.csv("DESeq2_genes_ASO_all.tsv", sep = "\t")
+deseq <- read.csv("data//DESeq2_genes_ASO_all.tsv", sep = "\t")
 
 deseq <- deseq %>%
     filter(!is.na(geneSymbol), geneSymbol != "",

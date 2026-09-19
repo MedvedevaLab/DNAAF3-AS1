@@ -10,6 +10,13 @@ library(grid)
 library(clusterProfiler)
 library(org.Hs.eg.db)
 library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(BiocParallel)
+
+BiocParallel::register(BiocParallel::MulticoreParam(workers = 1, progressbar = TRUE))
+
+cb_blue   <- "#0072B2"  # blue
+cb_orange <- "#D55E00"  # vermillion
+cb_grey   <- "#999999"  # neutral grey
 
 panel_theme <- theme(
     panel.border       = element_blank(),
@@ -41,24 +48,42 @@ get_annotation <- function(peak_data, correlation_label, txdb) {
     return(peak_annotation)
 }
 
-enrich_go_bp <- function(genes, universe) {
-    enrichGO(
-        gene          = genes,
-        universe      = universe,
+make_ranked <- function(de) {
+    de <- de[!is.na(de$log2FC) & !is.na(de$geneID), ]
+    de$gene <- sub("\\..*$", "", de$geneID)
+    de <- de[order(-abs(de$log2FC)), ]
+    de <- de[!duplicated(de$gene), ]
+    sort(setNames(de$log2FC, de$gene), decreasing = TRUE)
+}
+
+gsea_go_bp <- function(ranked) {
+    gseGO(
+        geneList      = ranked,
         OrgDb         = org.Hs.eg.db,
         keyType       = "ENSEMBL",
         ont           = "BP",
         pAdjustMethod = "BH",
         pvalueCutoff  = 0.05,
-        qvalueCutoff  = 0.05
+        verbose       = FALSE
     )
+}
+
+# dotplot of GSEA terms (x = NES), ordered by NES, coloured by adjusted p-value
+gsea_dotplot <- function(d, title, tag) {
+    d$Description <- factor(d$Description, levels = d$Description[order(d$NES)])
+    ggplot(d, aes(x = NES, y = Description, size = setSize, color = p.adjust)) +
+        geom_point() +
+        geom_vline(xintercept = 0, linetype = "dashed",
+                   linewidth = 0.2, colour = "grey60") +
+        theme_bw() + panel_theme +
+        labs(title = title, tag = tag, y = NULL) + theme(legend.key.size = unit(0.6, "cm"))
 }
 
 gtf_file <- "gencode.v49.annotation.gtf"
 txdb     <- makeTxDbFromGFF(gtf_file)
 
 # Panel A: Gene tracks
-# pyGenomeTracks --tracks plot.ini --region chr19:55158653-55178653 -o Figure1A.png --plotWidth 120 --dpi 130
+# pyGenomeTracks --tracks plot.ini --region chr19:55158653-55178653 -o Figure1A.png --plotWidth 60 --dpi 300
 gene_track_img  <- readPNG("Figure1A.png")
 gene_track_grob <- rasterGrob(gene_track_img,
     interpolate = TRUE, width = unit(4, "in"), height = unit(1.5, "in"))
@@ -80,26 +105,11 @@ result_show <- dplyr::filter(result, variable %in% tail(result[order(result$Desc
 result_show$value <- log10(result_show$value+1)
 
 panel_b <- ggplot(result_show, aes(x = variable , y = value , fill = Description )) +
-  theme_bw() + scale_fill_manual(values = c("DNAAF3-AS1" = "#E41A1C", "DNAAF3" = "#377EB8")) +
-  geom_bar(position = "dodge", stat = "identity") +
-  theme(panel.border = element_blank(), 
-  panel.grid.major = element_blank(),
-  panel.grid.minor = element_blank(),
-  legend.position = 'bottom',
-  text = element_text(size = 6),
-  axis.text.x = element_text(size = 5),
-  axis.ticks.x = element_blank(),
-  axis.title.y = element_text(size = 6),
-  axis.text.y = element_text(size = 6),
-  legend.key.size = unit(0.2, "cm"),
-  legend.text = element_text(size = 5),
-  plot.title = element_text(size = 6, hjust = 0.5),
-  plot.tag = element_text(size = 8, face="plain")) +
-  guides(fill=guide_legend(ncol = 2)) +
-  labs(title = "GTEx11", fill = "", tag = "B") + coord_flip()
+  theme_bw() + scale_fill_manual(values = c("DNAAF3-AS1" = cb_orange, "DNAAF3" = cb_blue)) +
+  geom_bar(position = "dodge", stat = "identity") + panel_theme +
+  labs(title = "", fill = "", tag = "B") + coord_flip()
 
 # Panel C: Number of significant DE genes per ASO in FANTOM6, highlight ASO_G0267577_01 and ASO_G0267577_03
-
 all_deseq2_results <- read.csv("DESeq2_genes_ASO_all.tsv", sep = "\t")
 
 highlight_asos <- c("ASO_G0267577_01", "ASO_G0267577_03")
@@ -118,56 +128,93 @@ x_labels <- ifelse(levels(sig_counts$perturb_id) %in% highlight_asos,
 panel_c <- ggplot(sig_counts, aes(x = perturb_id, y = n_sig, fill = highlight)) +
     theme_bw() +
     geom_bar(stat = "identity") +
-    scale_fill_manual(values = c("ASO_G0267577_01" = "#E41A1C",
-                                 "ASO_G0267577_03" = "#377EB8",
-                                 "other"           = "grey70"),
+    scale_fill_manual(values = c("ASO_G0267577_01" = cb_blue,
+                                 "ASO_G0267577_03" = cb_orange,
+                                 "other"           = cb_grey),
                       breaks = highlight_asos) +
     scale_x_discrete(labels = x_labels) +
     panel_theme +
     theme(axis.text.x = element_text(size = 5, angle = 90, hjust = 1, vjust = 0.5)) +
-    labs(title = "Significant DE genes per ASO (FDR < 0.05)",
+    labs(title = "",
          y = "Number of DE genes", x = NULL, fill = NULL, tag = "C")
 
 # Panel D: PROGENY pathway activities in DE genes
+panel_d = readRDS('decoupler_ASO_G0267577_01_pathway_activities.rds') + panel_theme  + labs(title = "ASO_01 PROGENy pathway activities", tag = "D")
 
-panel_d = readRDS('decoupler_ASO_G0267577_01_pathway_activities.rds') + panel_theme + labs(tag = "D")
-
-# Panel E,F: GO:BP enrichment
+# Panel E,F: GSEA GO:BP
 deseq2_aso1     <- dplyr::filter(all_deseq2_results, perturb_id == "ASO_G0267577_01")
 deseq2_aso1_sig <- deseq2_aso1[deseq2_aso1$fdr < 0.05, ]
+
+write.table(
+    file      = "SupplementaryTable1A.csv",
+    deseq2_aso1_sig, 
+    quote     = FALSE,
+    row.names = TRUE,
+    col.names = TRUE,
+    sep       = "\t"
+)
+
 deseq2_aso3     <- dplyr::filter(all_deseq2_results, perturb_id == "ASO_G0267577_03")
 deseq2_aso3_sig <- deseq2_aso3[deseq2_aso3$fdr < 0.05, ]
 
-deseq2_aso1_up   <- deseq2_aso1_sig$geneID[deseq2_aso1_sig$log2FC > 0]
-deseq2_aso1_down <- deseq2_aso1_sig$geneID[deseq2_aso1_sig$log2FC < 0]
-deseq2_aso3_up   <- deseq2_aso3_sig$geneID[deseq2_aso3_sig$log2FC > 0]
-deseq2_aso3_down <- deseq2_aso3_sig$geneID[deseq2_aso3_sig$log2FC < 0]
+write.table(
+    file      = "SupplementaryTable1B.csv",
+    deseq2_aso3_sig, 
+    quote     = FALSE,
+    row.names = TRUE,
+    col.names = TRUE,
+    sep       = "\t"
+)
 
-aso1_universe    <- unique(deseq2_aso1$geneID)
-aso3_universe    <- unique(deseq2_aso3$geneID)
+# GSEA GO:BP on the ASO_01 log2FC ranking (all tested genes)
+ranked_aso1 <- make_ranked(deseq2_aso1)
+gsea_aso1   <- gsea_go_bp(ranked_aso1)
+gsea_df     <- as.data.frame(gsea_aso1)
 
-ego_aso1_up   <- enrich_go_bp(deseq2_aso1_up,   aso1_universe)
-ego_aso1_down <- enrich_go_bp(deseq2_aso1_down, aso1_universe)
+write.table(
+    file      = "SupplementaryTable1E.csv",
+    gsea_df,
+    quote     = FALSE,
+    row.names = FALSE,
+    col.names = TRUE,
+    sep       = "\t"
+)
 
-panel_e <- dotplot(ego_aso1_up, showCategory = 10) +
-    theme_bw() + panel_theme +
-    labs(title = "GO:BP – ASO_01 up DE genes", tag = "E")
+# GSEA GO:BP on the ASO_01 log2FC ranking (all tested genes)
+ranked_aso3 <- make_ranked(deseq2_aso3)
+gsea_aso3   <- gsea_go_bp(ranked_aso3)
+gsea_df     <- as.data.frame(gsea_aso3)
 
-panel_f <- dotplot(ego_aso1_down, showCategory = 7) +
-    theme_bw() + panel_theme +
-    labs(title = "GO:BP – ASO_01 down DE genes", tag = "F")
+n_top   <- 10
+pos      <- gsea_df[gsea_df$NES > 0, ]
+neg      <- gsea_df[gsea_df$NES < 0, ]
+top_pos  <- head(pos[order(pos$qvalue), ], n_top)
+top_neg  <- head(neg[order(neg$qvalue), ], n_top)
+
+write.table(
+    file      = "SupplementaryTable1F.csv",
+    gsea_df,
+    quote     = FALSE,
+    row.names = FALSE,
+    col.names = TRUE,
+    sep       = "\t"
+)
+
+panel_e <- gsea_dotplot(top_pos, "NES > 0", "E")
+panel_f <- gsea_dotplot(top_neg, "NES < 0", "F")
 
 # Shared legend for panels E and F
-ef_data     <- rbind(panel_e$data[, c("Count", "p.adjust")],
-                     panel_f$data[, c("Count", "p.adjust")])
+ef_data     <- rbind(panel_e$data[, c("setSize", "p.adjust")],
+                     panel_f$data[, c("setSize", "p.adjust")])
 padj_range  <- range(ef_data$p.adjust)
-count_range <- range(ef_data$Count)
+size_range  <- range(ef_data$setSize)
+
 
 shared_scales <- list(
-    scale_color_gradient(name = "p.adjust", limits = padj_range,
-                         low = "red", high = "blue",
-                         guide = guide_colorbar(reverse = TRUE)),
-    scale_size_continuous(name = "Count", limits = count_range,
+    scale_color_viridis_c(name = "p.adjust", limits = padj_range,
+                          option = "viridis", direction = -1,
+                          guide = guide_colorbar(reverse = TRUE)),
+    scale_size_continuous(name = "setSize", limits = size_range,
                           range = c(0.5, 3))
 )
 panel_e <- panel_e + shared_scales
@@ -183,7 +230,6 @@ panel_ef  <- arrangeGrob(
     heights = c(1, 0.2)
 )
 
-# Assemble and save figure
 figure1_grob <- arrangeGrob(
     panel_a, panel_b, panel_c, panel_d, panel_ef,
     layout_matrix = rbind(
