@@ -1,15 +1,12 @@
 library(ggplot2)
 library(ggpubr)
-library(ChIPseeker)
 library(png)
 library(gridExtra)
 library(reshape2)
 library(dplyr)
-library(ChIPpeakAnno)
 library(grid)
 library(clusterProfiler)
 library(org.Hs.eg.db)
-library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 library(BiocParallel)
 
 BiocParallel::register(BiocParallel::MulticoreParam(workers = 1, progressbar = TRUE))
@@ -35,18 +32,6 @@ panel_theme <- theme(
     plot.tag           = element_text(size = 6, face = "plain"),
     legend.spacing.y   = unit(2, "cm")
 )
-
-# Annotate genomic peaks from a data frame of coordinates
-get_annotation <- function(peak_data, correlation_label, txdb) {
-    coords <- peak_data[, c("chrom", "start", "end")]
-    coords <- cbind(coords, "*")
-    colnames(coords) <- c("seqnames", "start", "end", "strand")
-    coords$start <- as.numeric(coords$start)
-    coords$end   <- as.numeric(coords$end)
-    peak_granges <- toGRanges(coords, format = "BED")
-    peak_annotation <- annotatePeak(peak_granges, tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
-    return(peak_annotation)
-}
 
 # strip Ensembl version
 strip_version <- function(ids) sub("\\..*$", "", ids)
