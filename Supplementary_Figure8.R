@@ -122,10 +122,10 @@ panel_d <- ggplot(module_scores_long,
   labs(title = "H3K36me3 HiMoRNA module scores across testis cell types",
        x = NULL, y = "Module score", tag = "D")
 
-figure7_grob <- arrangeGrob(
+g <- arrangeGrob(
   panel_a, panel_b, panel_c, panel_d,
   ncol = 2, nrow = 6,
   layout_matrix = rbind(c(1, 1), c(1, 1),  c(2, 3), c(4, 4), c(4, 4))
 )
 
-ggsave("Supplementary_Figure8.png", plot = figure7_grob, width = 16, height = 26, units = "cm")
+ggsave("Supplementary_Figure8.png", plot = g, width = 16, height = 24, units = "cm")
