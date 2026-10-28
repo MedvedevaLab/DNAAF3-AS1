@@ -374,5 +374,3 @@ panel_f <- readRDS("Figure3F.rds")
 
 g <- arrangeGrob(panel_a, panel_b, panel_c, panel_d, panel_e, panel_f, ncol = 2, nrow = 5, layout_matrix= rbind(c(1,2), c(3,3), c(4,4), c(5,6)))
 ggsave(paste0("Figure3.png"), plot = g, width = 17, height = 20, units = "cm")
-
-# pyGenomeTracks --tracks plot_rfx2.ini --region chr19:5979119-6220000 -o Figure3A.png --plotWidth 90 --dpi 130

@@ -1,16 +1,15 @@
 library(ggplot2)
 library(ggpubr)
-library(ChIPseeker)
 library(png)
 library(gridExtra)
 library(dplyr)
-library(ChIPpeakAnno)
 library(grid)
-library("GenometriCorr")
-library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 library(stringr)
 library(ggrepel)
 library(Seurat)
+
+cb_blue   <- "#0072B2"
+cb_orange <- "#D55E00"
 
 panel_theme <- theme(
     panel.border       = element_blank(),
@@ -30,137 +29,7 @@ panel_theme <- theme(
     legend.spacing.y   = unit(2, "cm")
 )
 
-
-
-# Annotate genomic peaks from a data frame of coordinates.
-# `cols` selects the chrom/start/end columns (by name or position).
-get_annotation <- function(peaks, txdb, cols = c(1, 2, 3)) {
-  coords <- peaks[, cols]
-  coords <- cbind(coords, "*")
-  colnames(coords) <- c("seqnames", "start", "end", "strand")
-  coords$start <- as.numeric(coords$start)
-  coords$end   <- as.numeric(coords$end)
-  ranges <- toGRanges(coords, format = "BED")
-  peakAnno <- annotatePeak(ranges, tssRegion = c(-1000, 100), TxDb = txdb, overlap = "all")
-  return(peakAnno)
-}
-
-gtf_name <- "gencode.v49.annotation.gtf"
-txdb <- makeTxDbFromGFF(gtf_name)
-
 # Panel A
-img <- readPNG('metascape.png')
-g11 <- rasterGrob(img,
-  interpolate=TRUE, width = unit(6,"in"), height=unit(1.2,"in"))
-
-panel_a<- ggplot(geom="blank") +
-  annotation_custom(g11) +
-  theme_bw() +
-  panel_theme +
-  theme(
-      axis.title.x = element_blank(),
-      legend.key.size = unit(0.2, "cm"),
-      legend.text = element_text(size = 5)) + labs(tag = "A")
-
-
-
-diffbind_results <- read.csv('/data/budkina/himorna_chipseq_data/test/CTD-2587H24.5_H3K36me3_differential_peaks.csv', sep = '\t')
-diffbind_sig <- diffbind_results[diffbind_results$FDR < 0.05,] # & abs(diffbind_results$Fold) > 1
-
-diffbind_sig$significance <- "Unchanged"
-diffbind_sig$significance[diffbind_sig$Fold < 0] <- "Lost"
-diffbind_sig$significance[diffbind_sig$Fold > 0] <- "Gained"
-diffbind_sig$significance <- factor(diffbind_sig$significance, levels = c( "Gained", "Lost", "Unchanged"))
-
-
-diffbind_sig_gained    <- diffbind_sig[diffbind_sig$significance == "Gained", ]
-
-diffbind_sig_gained_bed <- diffbind_sig_gained[, c("seqnames", "start", "end", "strand")]
-
-write.table(
-    file      = "diffbind_sig_gained.bed",
-    diffbind_sig_gained_bed,
-    quote     = FALSE,
-    row.names = FALSE,
-    col.names = FALSE,
-    sep       = "\t"
-)
-
-diffbind_sig_lost    <- diffbind_sig[diffbind_sig$significance == "Lost", ]
-
-diffbind_sig_lost_bed <- diffbind_sig_lost[, c("seqnames", "start", "end", "strand")]
-
-write.table(
-    file      = "diffbind_sig_lost.bed",
-    diffbind_sig_lost_bed,
-    quote     = FALSE,
-    row.names = FALSE,
-    col.names = FALSE,
-    sep       = "\t"
-)
-             
-
-gained_peak_anno       <- get_annotation(diffbind_sig_gained, txdb)
-gained_peak_anno_df    <- as.data.frame(gained_peak_anno@anno)
-gained_peak_anno_df$geneId <- str_split_fixed(gained_peak_anno_df$geneId, "\\.", 2)[, 1]
-gained_peak_anno_df <- gained_peak_anno_df[gained_peak_anno_df$annotation != 'Promoter',]
-  
-
-all_deseq2_results <- read.csv("DESeq2_genes_ASO_all.tsv", sep = "\t")
-deseq2_aso1     <- dplyr::filter(all_deseq2_results, perturb_id == "ASO_G0267577_01")
-deseq2_aso1_sig <- deseq2_aso1[deseq2_aso1$fdr < 0.05, ]
-deseq2_aso3     <- dplyr::filter(all_deseq2_results, perturb_id == "ASO_G0267577_03")
-deseq2_aso3_sig <- deseq2_aso3[deseq2_aso3$fdr < 0.05, ]
-
-
-
-
-de_to_plot <-  dplyr::filter(deseq2_aso1, geneID %in% gained_peak_anno_df$geneId)
-
-
-de_to_plot$log_padj <- -log10(de_to_plot$fdr)
-de_to_plot$sig <- de_to_plot$fdr < 0.05
-
-reproduction_genes <- c('BCL2L2', 'PSMA1', 'RFX2', 'RPL30', 'VDAC3', 'SELENOF')
-de_to_plot$reproduction <- de_to_plot$geneSymbol %in% reproduction_genes
-
-panel_b <- ggplot(de_to_plot, aes(x = log2FC, y = log_padj, label = ifelse(sig, geneSymbol, NA))) +
-    geom_point(shape = 1, alpha = 0.4) +
-    geom_text_repel(color = "black", size = 2, max.overlaps = 12) +
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "grey60") +
-    theme_bw() +
-    panel_theme +
-    labs(title = "ASO_01 differential expression gained peaks",
-         x = "log2FC", y = "-log10(FDR)", tag = "B")
-
-
-
-# G. Dotplot of reproduction genes across ASO_01 and ASO_03
-dotplot_df <- dplyr::filter(all_deseq2_results,
-    perturb_id %in% c("ASO_G0267577_01", "ASO_G0267577_03"),
-    geneSymbol %in% reproduction_genes)
-dotplot_df$ASO <- ifelse(dotplot_df$perturb_id == "ASO_G0267577_01", "ASO_01", "ASO_03")
-dotplot_df <- dotplot_df %>%
-    dplyr::group_by(ASO, geneSymbol) %>%
-    dplyr::slice_min(fdr, n = 1, with_ties = FALSE) %>%
-    dplyr::ungroup()
-dotplot_df$log_padj <- -log10(dotplot_df$fdr)
-dotplot_df$geneSymbol <- factor(dotplot_df$geneSymbol, levels = rev(reproduction_genes))
-dotplot_df$sig <- dotplot_df$fdr < 0.05
-
-panel_c <- ggplot(dotplot_df, aes(x = ASO, y = geneSymbol, fill = log2FC, size = log_padj, color = sig)) +
-    geom_point(shape = 21, stroke = 0.6) +
-    scale_fill_gradient2(low = "#1F78B4", mid = "white", high = "#E31A1C", midpoint = 0) +
-    scale_color_manual(values = c("TRUE" = "black", "FALSE" = NA), guide = "none") +
-    scale_size_continuous(range = c(1, 5)) +
-    theme_bw() +
-    panel_theme +
-    labs(title = "Reproduction genes", x = NULL, size = "-log10(FDR)",
-         fill = "log2FC", tag = "C")
-
-
-
-
 # Single-cell GSE112013 dataset
 seurat_object <- readRDS('testis.rds')
 Idents(object = seurat_object) <- seurat_object@meta.data$celltype
@@ -170,28 +39,22 @@ seurat_object$celltype <- factor(seurat_object$celltype,
                           "Sperm2", "Sperm3", "Macrophage", "Endothelial cells", "Myoid cells",
                           "Sertoli cells"))
 
-cols <- rev(c("#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F", "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#D37295", "#499894", "#A0CBE8", "#BAB0AC"))
-
-# UMAPs with annotation
-# 
-panel_d <- DimPlot(seurat_object, reduction = "umap", group.by = "celltype", label = FALSE, repel = TRUE, raster=FALSE) + 
+panel_a <- DimPlot(seurat_object, reduction = "umap", group.by = "celltype", label = TRUE, label.size = 2, repel = TRUE, raster=FALSE) +
 panel_theme +
-  theme(plot.title = element_blank()) + 
   guides(fill = guide_legend(ncol = 3)) +
-  scale_color_manual(values = rev(cols), guide = guide_legend(reverse = TRUE), drop = FALSE) +
-  labs(title = "", tag = "D")
+  scale_color_viridis_d(option = "turbo", guide = guide_legend(reverse = TRUE), drop = FALSE) +
+  labs(title = "", tag = "A") +
+  theme(plot.title = element_blank(),
+    axis.title.y = element_text(size = 6, angle = 90))
 
-# ── panel_d: DNAAF3-AS1 and DNAAF3 expression across cell types ───────────────
-# Combine the two per-gene violins into one boxplot panel (both genes side by
-# side per cell type) and overlay a smoothed trend across cell types (ordered
-# along spermatogenesis) for each gene.
-d_genes <- c('CTD-2587H24.5', 'DNAAF3', 'RFX2')
+# Panel B expression across cell types
+
+d_genes <- c('CTD-2587H24.5', 'DNAAF3')
 d_expr  <- FetchData(seurat_object, vars = c(d_genes, "celltype"))
 d_long  <- tidyr::pivot_longer(d_expr, cols = tidyselect::all_of(d_genes),
                                names_to = "gene", values_to = "expression")
 d_long$gene         <- factor(d_long$gene, levels = d_genes,
-                              labels = c("DNAAF3-AS1", "DNAAF3", 'RFX2'))
-# Drop somatic / non-germline cell types from this panel
+                              labels = c("DNAAF3-AS1", "DNAAF3"))
 d_exclude_celltypes <- c("Macrophage", "Endothelial cells", "Myoid cells", "Sertoli cells")
 d_long              <- d_long[!(d_long$celltype %in% d_exclude_celltypes), ]
 d_long$celltype     <- factor(d_long$celltype,
@@ -199,23 +62,108 @@ d_long$celltype     <- factor(d_long$celltype,
                                                d_exclude_celltypes))
 d_long$celltype_num <- as.numeric(d_long$celltype)
 
-gene_cols <- c("DNAAF3-AS1" = "#4E79A7",
-  "DNAAF3" = "#F28E2B",
-  'RFX2' = "#E15759")
+gene_cols <- c("DNAAF3-AS1" = cb_orange,
+  "DNAAF3" = cb_blue)
 
-panel_e <- ggplot(d_long, aes(x = celltype, y = expression, fill = gene)) +
+panel_b <- ggplot(d_long, aes(x = celltype, y = expression, fill = gene)) +
   geom_boxplot(outlier.size = 0.2, linewidth = 0.2, alpha = 0.7,
                position = position_dodge(width = 0.8)) +
   geom_smooth(aes(x = celltype_num, color = gene, group = gene),
               method = "loess", se = FALSE, linewidth = 0.6) +
-  scale_fill_manual(values = gene_cols, name = "") +
-  scale_color_manual(values = gene_cols, name = "") +
+  scale_fill_manual(name = "", values = gene_cols) +
+  scale_color_manual(name = "", values = gene_cols) +
   theme_bw() +
   panel_theme +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5), 
+    axis.title.y = element_text(size = 6, angle = 90)) +
   labs(title = "", x = NULL,
-       y = "Expression (log-normalized)", tag = "E")
+       y = "Expression (log-normalized)", tag = "B")
+
+# Fraction of cells with non-zero CTD-2587H24.5 (DNAAF3-AS1) expression per cell type
+frac_expr <- FetchData(seurat_object, vars = c("CTD-2587H24.5", "celltype"))
+colnames(frac_expr)[1] <- "expression"
+frac_nonzero <- frac_expr %>%
+  dplyr::group_by(celltype) %>%
+  dplyr::summarise(
+    n_cells          = dplyr::n(),
+    n_nonzero        = sum(expression > 0),
+    fraction_nonzero = sum(expression > 0) / dplyr::n(),
+    .groups = "drop"
+  ) %>%
+  dplyr::arrange(celltype)
+
+write.csv(frac_nonzero, "Supplementary_TableX.csv", row.names = FALSE)
+
+# Panel C: correlation of each himorna module score with CTD-2587H24.5 (DNAAF3-AS1) expression across all cells
+gene_candidates <- c("CTD-2587H24.5", "DNAAF3-AS1", "ENSG00000267577")
+
+target_expression <- function(obj) {
+  hit <- gene_candidates[gene_candidates %in% rownames(obj)][1]
+  if (is.na(hit)) stop("CTD-2587H24.5 / DNAAF3-AS1 not found in object features")
+  as.numeric(FetchData(obj, vars = hit, assay = "RNA", layer = "data")[[1]])
+}
+
+correlate_scores <- function(rds_file, source_label) {
+  obj  <- readRDS(rds_file)
+  md   <- obj@meta.data
+  expr <- target_expression(obj)
+
+  keep <- !(md$celltype %in% d_exclude_celltypes)
+  md   <- md[keep, ]
+  expr <- expr[keep]
+
+  score_cols <- c("H3K36me3 rho > 0.5"  = "add_module_score1",
+                  "H3K36me3 rho < -0.5" = "add_module_score2")
+
+  do.call(rbind, lapply(names(score_cols), function(rho_set) {
+    score <- md[[score_cols[[rho_set]]]]
+    ct    <- cor.test(score, expr, method = "spearman")
+    rho   <- unname(ct$estimate)
+    n     <- sum(complete.cases(score, expr))
+    se_z  <- sqrt((1 + rho^2 / 2) / (n - 3))
+    z     <- atanh(rho)
+    data.frame(
+      set    = paste(source_label, rho_set, sep = " | "),
+      rho    = rho,
+      ci_low = tanh(z - qnorm(0.975) * se_z),
+      ci_high = tanh(z + qnorm(0.975) * se_z),
+      pval   = ct$p.value,
+      n      = n,
+      stringsAsFactors = FALSE
+    )
+  }))
+}
+
+cor_df <- rbind(
+  correlate_scores("testis_promoter.rds", "Promoter"),
+  correlate_scores("testis_genebody.rds", "Gene body")
+)
+
+cor_df$set     <- factor(cor_df$set, levels = c("Promoter | H3K36me3 rho > 0.5",
+  "Promoter | H3K36me3 rho < -0.5",
+  "Gene body | H3K36me3 rho > 0.5",
+  "Gene body | H3K36me3 rho < -0.5"))
+
+cor_df$p_label <- ifelse(cor_df$pval < 2.2e-16, "p < 2.2e-16",
+                         paste0("p = ", signif(cor_df$pval, 2)))
+
+panel_c <- ggplot(cor_df, aes(x = set, y = rho, fill = set)) +
+  geom_col(width = 0.7) +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.2, linewidth = 0.3) +
+  geom_hline(yintercept = 0, linewidth = 0.2, colour = "grey40") +
+  scale_fill_viridis_d(guide = "none") +
+  scale_x_discrete(labels = function(x) str_wrap(x, 16)) +
+  scale_y_continuous(expand = expansion(mult = c(0.15, 0.15))) +
+  theme_bw() +
+  panel_theme +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5), 
+    axis.title.y = element_text(size = 6, angle = 90)) +
+  labs(title = "",
+       x = NULL, y = "Spearman rho", tag = "C")
 
 
-g <- arrangeGrob(panel_a, panel_b, panel_c, panel_d, panel_e, ncol = 3, nrow = 3, layout_matrix= rbind(c(1,1,1), c(2,2,3), c(4,5,5)))
-ggsave(paste0("Figure4.png"), plot = g, width = 18, height = 24, units = "cm")
+g <- arrangeGrob(panel_a, panel_b, panel_c,  ncol = 2, nrow = 2, layout_matrix= rbind(c(1, 1), c(2,3)))
+ggsave(paste0("Figure4.png"), plot = g, width = 18, height = 20, units = "cm")
+
+
+
