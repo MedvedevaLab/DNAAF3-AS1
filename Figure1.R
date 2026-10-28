@@ -7,6 +7,7 @@ library(dplyr)
 library(grid)
 library(clusterProfiler)
 library(org.Hs.eg.db)
+library(GenomicFeatures)
 library(BiocParallel)
 library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 

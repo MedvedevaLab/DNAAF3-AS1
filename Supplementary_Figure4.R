@@ -3,8 +3,16 @@ library(ggrepel)
 library(ggpubr)
 library(grid)
 library(gridExtra)
-###################
+library(ChIPseeker)
+library(GenomeInfoDb)
+library(dplyr)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(ChIPpeakAnno)
 
+cb_blue   <- "#0072B2"
+cb_orange <- "#D55E00"
+cb_green  <- "#009E73"
+cb_grey   <- "#999999"
 
 panel_theme <- theme(
     panel.border       = element_blank(),
@@ -23,167 +31,121 @@ panel_theme <- theme(
     legend.spacing.y   = unit(2, "cm")
 )
 
+get_tss_dist <- function(ctd_himorna, corr_type, label, txdb) 
+{
+  coords <- ctd_himorna[,c('chrom', 'start', 'end')]
+  coords <- cbind(coords, "*")
+  colnames(coords) <- c('seqnames', 'start', 'end', 'strand')
+  coords$start <- as.numeric(coords$start)
+  coords$end <- as.numeric(coords$end)
+  ranges <- toGRanges(coords, format='BED')
 
-# A. Alignment rate
-# B. Alignment rate
-# C. Fraction of reads in peaks
-alignment_stat <- read.csv('alignment_stat.csv', sep = '\t')
-alignment_stat$Sample_name <- c('ASO_01_signal', 'ASO_03_signal', 'NCA_01_signal', 'NCA_02_signal', 
-	'ASO_01_input', 'ASO_03_input', 'NCA_01_input', 'NCA_02_input')
-alignment_stat$Sample_name <- factor(alignment_stat$Sample_name, levels = c('ASO_01_signal', 'ASO_03_signal', 'NCA_01_signal', 'NCA_02_signal', 
-	'ASO_01_input', 'ASO_03_input', 'NCA_01_input', 'NCA_02_input'))
-p1 <- ggplot(alignment_stat, aes(x = Sample_name, y = Alignment_rate)) +
-    theme_bw() +
-    geom_bar(position = "dodge", stat = "identity") +
-    scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
-    panel_theme +
-    theme(axis.text.x = element_text(size = 6, angle = 90)) +
-    guides(fill = guide_legend(ncol = 3)) +
-    labs(title = "", x = "Experiment", y = "Alignment rate", tag = "A")
+  peakAnno <- annotatePeak(ranges, tssRegion=c(-1000, 100), TxDb=txdb, overlap="all")
 
-p2 <- ggplot(alignment_stat, aes(x = Sample_name, y = Deduplication_rate)) +
-    theme_bw() +
-    geom_bar(position = "dodge", stat = "identity") +
-    scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
-    panel_theme +
-    theme(axis.text.x = element_text(size = 6, angle = 90)) +
-    guides(fill = guide_legend(ncol = 3)) +
-    labs(title = "", x = "Experiment", y = "Deduplication rate", tag = "B")
+  p <- plotDistToTSS(peakAnno, distanceColumn = "distanceToTSS", xlab = "", ylab = corr_type) +
+  theme_bw() +
+  panel_theme +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 6, vjust = 0.5, hjust = 1),
+        legend.title = element_text(size = 6),
+        legend="bottom",
+        axis.text.y = element_text(size = 6),
+        plot.title = element_text(size = 6),
+        legend.key.size = unit(0.2, "cm"),
+        legend.text = element_text(size = 5),
+        plot.tag = element_text(size = 6, face="plain")) +
+  labs(tag = label, title = "H3K36me3 peaks (%) (5'->3')")
 
+  return(p)
+}
 
-frip_stat <- read.csv('frip_stat.csv', sep = '\t')
-frip_stat$Sample <- factor(frip_stat$Sample,
-    levels = c('ASO_01', 'ASO_03', 'NCA_01', 'NCA_02'))
+gtf_file <- "gencode.v49.annotation.gtf"
+txdb     <- makeTxDbFromGFF(gtf_file)
 
-p3 <- ggplot(frip_stat, aes(x = Sample, y = FRIP)) +
-    theme_bw() +
-    geom_bar(position = "dodge", stat = "identity") +
-    geom_text(aes(label = sprintf("%.2f", FRIP)), vjust = -0.3, size = 1.8) +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
-    scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +
-    panel_theme +
-    theme(axis.text.x = element_text(size = 6, angle = 90)) +
-    guides(fill = guide_legend(ncol = 3)) +
-    labs(title = "", x = "Experiment", y = "FRIP", tag = "C")
+# A. Himorna peaks counts
+# Read himorna peaks
+ctd_himorna <- read.csv('ENSG00000267577.tsv', sep = '\t')
+ctd_himorna$peak_type <- NA
+ctd_himorna[ctd_himorna$corr > 0, 'peak_type'] <- 'rho > 0.5'
+ctd_himorna[ctd_himorna$corr < 0, 'peak_type'] <- 'rho < -0.5'
 
+# Count peaks H3K36me3
+hm_counts <- as.data.frame(table(ctd_himorna$hm, ctd_himorna$peak_type), dnn = c("Histone mark", "Sperman rho"))
 
-p <- ggarrange(p1, p2, p3, ncol = 3, nrow = 1, common.legend = F)
+hm_counts$Var1   <- factor(hm_counts$Var1,
+    levels = rev(c('H3K36me3', 'H3K27me3', 'H3K4me3', 'H3K27ac', 'H3K4me1', 'H3K4me2', 'H3K9ac', 'H3K9me3', 'H3K79me2', 'H4K20me1')))
 
-load("/data/budkina/himorna_chipseq_data/test/C-9_S41.spp.Rdata")
+hm_counts <- as.data.frame(tidyr::complete(hm_counts, Var2, Var1))
 
-# vertical lines data
-vlines_peak    <- data.frame(x = cc.peak$x,                 type = "CC Peak")
-vlines_phantom <- data.frame(x = crosscorr$phantom.cc$x,    type = "Phantom Peak")
+panel_a <- ggplot(hm_counts, aes(x = Var1, y = Freq, fill = Var2)) +
+  theme_bw() +
+  geom_bar(position="dodge", stat="identity") +
+  geom_text(aes(label = ifelse(is.na(Freq) | Freq == 0, "", Freq)),
+            position = position_dodge(width = 0.9),
+            hjust = -0.2, size = 1.8) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = c("rho > 0.5" = cb_orange, "rho < -0.5" = cb_blue),
+                    guide = guide_legend(reverse = TRUE), drop = FALSE) + panel_theme +
+  guides(fill=guide_legend(ncol = 2)) +
+  labs(title = "Peaks correlated with DNAAF3-AS1", x = "", y = "Number of peaks", fill = "", tag = "A") +
+  coord_flip()
 
-# build plot
-p41 <- ggplot(crosscorr$cross.correlation, aes(x = x, y = y)) +
-  geom_line() +
-  geom_vline(data = vlines_peak,    aes(xintercept = x), linetype = "dashed", color = "red") +
-  geom_vline(data = vlines_phantom, aes(xintercept = x), linetype = "dashed", color = "blue") +
-  labs(
-    x        = sprintf("strand-shift (%s)", paste(cc.peak$x, collapse = ",")),
-    y        = "cross-correlation",
-    title    = "ASO_01",
-    subtitle = sprintf("NSC=%g, RSC=%g, Qtag=%d",
-                       crosscorr$phantom.coeff,
-                       crosscorr$rel.phantom.coeff,
-                       crosscorr$phantom.quality.tag), tag = "D") +
-  theme_classic(base_size = 10) +
-  theme(
-    plot.title    = element_text(hjust = 0.5),
-    plot.subtitle = element_text(hjust = 0.5),
-    axis.title    = element_text(size  = 9),
-    plot.margin   = margin(t = 2, r = 0.5, b = 4, l = 3.5, unit = "mm")
-  )
+# B. Himorna peaks distance from TSS
+himorna_peaks <- read.csv("ENSG00000267577.tsv", sep = "\t")
+himorna_peaks <- dplyr::filter(himorna_peaks, hm == "H3K36me3")
+himorna_peaks_pos_cor <- himorna_peaks[himorna_peaks$corr > 0, ]
+himorna_peaks_neg_cor <- himorna_peaks[himorna_peaks$corr < 0, ]
+rownames(himorna_peaks_pos_cor) <- himorna_peaks_pos_cor$X
+rownames(himorna_peaks_neg_cor) <- himorna_peaks_neg_cor$X
 
+p31 <-  get_tss_dist(himorna_peaks_pos_cor, 'rho > 0', "B", txdb) 
+p32 <-  get_tss_dist(himorna_peaks_neg_cor, 'rho < 0', "", txdb) 
+panel_b <- ggarrange(p31, p32, ncol = 1, nrow = 2, common.legend = TRUE, legend="bottom")
 
-load("/data/budkina/himorna_chipseq_data/test/C-10_S42.spp.Rdata")
+# C. Differential expression of H3K36me3 modifier
+fantom <- read.csv('DESeq2_genes_ASO_all.tsv', sep = '\t')
+aso01 <- dplyr::filter(fantom, perturb_id == 'ASO_G0267577_01')
+aso01 <- aso01[aso01$fdr < 0.05, ]
+aso03 <- dplyr::filter(fantom, perturb_id == 'ASO_G0267577_03')
+aso03 <- aso03[aso03$fdr < 0.05, ]
 
-# vertical lines data
-vlines_peak    <- data.frame(x = cc.peak$x,                 type = "CC Peak")
-vlines_phantom <- data.frame(x = crosscorr$phantom.cc$x,    type = "Phantom Peak")
+fantom_subset <- dplyr::filter(fantom, geneSymbol %in% c('SETD2',
+  'NSD1',
+  'WHSC1',    # current symbol: NSD2
+  'WHSC1L1',  # current symbol: NSD3
+  'NSD2',
+  'NSD3',
+  'ASH1L',
+  'SETMAR',
+  'SMYD2',
+  'SMYD5',
+  'SETD3',
+  'KDM2A',
+  'KDM2B',
+  'KDM4A',
+  'KDM4B',
+  'KDM4C',
+  'KDM4D'))
 
-# build plot
-p42 <- ggplot(crosscorr$cross.correlation, aes(x = x, y = y)) +
-  geom_line() +
-  geom_vline(data = vlines_peak,    aes(xintercept = x), linetype = "dashed", color = "red") +
-  geom_vline(data = vlines_phantom, aes(xintercept = x), linetype = "dashed", color = "blue") +
-  labs(
-    x        = sprintf("strand-shift (%s)", paste(cc.peak$x, collapse = ",")),
-    y        = "cross-correlation",
-    title    = "ASO_03",
-    subtitle = sprintf("NSC=%g, RSC=%g, Qtag=%d",
-                       crosscorr$phantom.coeff,
-                       crosscorr$rel.phantom.coeff,
-                       crosscorr$phantom.quality.tag)
-  ) +
-  theme_classic(base_size = 10) +
-  theme(
-    plot.title    = element_text(hjust = 0.5),
-    plot.subtitle = element_text(hjust = 0.5),
-    axis.title    = element_text(size  = 9),
-    plot.margin   = margin(t = 2, r = 0.5, b = 4, l = 3.5, unit = "mm")
-  )
+fantom_subset <- dplyr::filter(fantom_subset, perturb_id %in% c('ASO_G0267577_01', 'ASO_G0267577_03'))
+fantom_subset$geneSymbol <- dplyr::recode(fantom_subset$geneSymbol,
+                                          WHSC1 = "NSD2", WHSC1L1 = "NSD3")
+fantom_subset$sig <- ""
+fantom_subset[fantom_subset$fdr < 0.05,  'sig'] <- '*'
+fantom_subset[fantom_subset$fdr < 0.01,  'sig'] <- '**'
+fantom_subset[fantom_subset$fdr < 0.001, 'sig'] <- '***'
 
-load("/data/budkina/himorna_chipseq_data/test/C-19_S51.spp.Rdata")
+panel_c <- ggplot(fantom_subset, aes(x = geneSymbol, y = perturb_id, fill = log2FC))+
+theme_bw() +
+geom_tile() +
+scale_fill_gradient2(low = cb_blue, mid = "white", high = cb_orange, midpoint = 0, limits = c(-1.5, 1.5)) +
+geom_text(data=fantom_subset, aes(x = geneSymbol, y = perturb_id, label = sig, angle = 0), size=2.5) +
+scale_x_discrete(drop = FALSE) +
+scale_y_discrete(drop = FALSE) +
+panel_theme + theme(
+    legend.key.size    = unit(0.6, "cm"),
+    axis.title.y       = element_blank()
+) + labs(title = "", tag = "C")
 
-# vertical lines data
-vlines_peak    <- data.frame(x = cc.peak$x,                 type = "CC Peak")
-vlines_phantom <- data.frame(x = crosscorr$phantom.cc$x,    type = "Phantom Peak")
-
-# build plot
-p43 <- ggplot(crosscorr$cross.correlation, aes(x = x, y = y)) +
-  geom_line() +
-  geom_vline(data = vlines_peak,    aes(xintercept = x), linetype = "dashed", color = "red") +
-  geom_vline(data = vlines_phantom, aes(xintercept = x), linetype = "dashed", color = "blue") +
-  labs(
-    x        = sprintf("strand-shift (%s)", paste(cc.peak$x, collapse = ",")),
-    y        = "cross-correlation",
-    title    = "NCA_01",
-    subtitle = sprintf("NSC=%g, RSC=%g, Qtag=%d",
-                       crosscorr$phantom.coeff,
-                       crosscorr$rel.phantom.coeff,
-                       crosscorr$phantom.quality.tag)
-  ) +
-  theme_classic(base_size = 10) +
-  theme(
-    plot.title    = element_text(hjust = 0.5),
-    plot.subtitle = element_text(hjust = 0.5),
-    axis.title    = element_text(size  = 9),
-    plot.margin   = margin(t = 2, r = 0.5, b = 4, l = 3.5, unit = "mm")
-  )
-
-
-load("/data/budkina/himorna_chipseq_data/test/C-20_S52.spp.Rdata")
-
-# vertical lines data
-vlines_peak    <- data.frame(x = cc.peak$x,                 type = "CC Peak")
-vlines_phantom <- data.frame(x = crosscorr$phantom.cc$x,    type = "Phantom Peak")
-
-# build plot
-p44 <- ggplot(crosscorr$cross.correlation, aes(x = x, y = y)) +
-  geom_line() +
-  geom_vline(data = vlines_peak,    aes(xintercept = x), linetype = "dashed", color = "red") +
-  geom_vline(data = vlines_phantom, aes(xintercept = x), linetype = "dashed", color = "blue") +
-  labs(
-    x        = sprintf("strand-shift (%s)", paste(cc.peak$x, collapse = ",")),
-    y        = "cross-correlation",
-    title    = "NCA_02",
-    subtitle = sprintf("NSC=%g, RSC=%g, Qtag=%d",
-                       crosscorr$phantom.coeff,
-                       crosscorr$rel.phantom.coeff,
-                       crosscorr$phantom.quality.tag)
-  ) +
-  theme_classic(base_size = 10) +
-  theme(
-    plot.title    = element_text(hjust = 0.5),
-    plot.subtitle = element_text(hjust = 0.5),
-    axis.title    = element_text(size  = 9),
-    plot.margin   = margin(t = 2, r = 0.5, b = 4, l = 3.5, unit = "mm")
-  )
-
-
-
-g <- arrangeGrob(p, p41, p42, p43, p44, ncol = 2, nrow = 3, layout_matrix= rbind(c(1,1), c(2,3), c(4,5)))
-ggsave(paste0("Supplementary_Figure4.png"), plot = g, width = 18, height = 25, units = "cm")
-
+g <- arrangeGrob(panel_a, panel_b, panel_c, ncol = 2, nrow =2, layout_matrix= rbind(c(1,2), c(3,3)))
+ggsave(paste0("Supplementary_Figure4.png"), plot = g, width = 18, height = 15, units = "cm")

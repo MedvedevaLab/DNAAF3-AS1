@@ -1,13 +1,14 @@
 library(ggplot2)
-library(ggrepel)
-library(ggpubr)
-library(grid)
+library(png)
 library(gridExtra)
-library(ChIPseeker)
-library(GenomeInfoDb)
-library(dplyr)
-library(TxDb.Hsapiens.UCSC.hg38.knownGene)
-library(ChIPpeakAnno)
+library(reshape2)
+library(RColorBrewer)
+library(grid)
+
+cb_blue   <- "#0072B2" 
+cb_orange <- "#D55E00"
+cb_green  <- "#009E73"
+cb_grey   <- "#999999"
 
 panel_theme <- theme(
     panel.border       = element_blank(),
@@ -26,155 +27,113 @@ panel_theme <- theme(
     legend.spacing.y   = unit(2, "cm")
 )
 
-# Generate GRanges for peaks
-get_tss_dist <- function(ctd_himorna, corr_type, label, txdb) 
-{
-  coords <- ctd_himorna[,c('chrom', 'start', 'end')]
-  coords <- cbind(coords, "*")
-  colnames(coords) <- c('seqnames', 'start', 'end', 'strand')
-  coords$start <- as.numeric(coords$start)
-  coords$end <- as.numeric(coords$end)
-  ranges <- toGRanges(coords, format='BED')
 
-  peakAnno <- annotatePeak(ranges, tssRegion=c(-1000, 100), TxDb=txdb, overlap="all")
+df <- read.csv('cell_profiler.csv', sep = '\t', dec = ',')
+df <- df[df$KD.pubID == 'CTD-2587H24.5', ]
+df <- df[df$perturb_id %in% c("ASO_G0267577_01", "ASO_G0267577_03"),]
 
-  p <- plotDistToTSS(peakAnno, distanceColumn = "distanceToTSS", xlab = "", ylab = corr_type) +
-  theme_bw() +
+params <- c(
+  "GrowthRate",
+  "Area",
+  "Compactness",
+  "Eccentricity",
+  "Extent",
+  "FormFactor",
+  "MajorAxisLength",
+  "MaxFeretDiameter",
+  "MaximumRadius",
+  "MedianRadius",
+  "MinFeretDiameter",
+  "MinorAxisLength",
+  "Perimeter",
+  "Solidity"
+)
+
+mean_cols <- paste0(params, "_mean")
+fdr_cols  <- paste0(params, "_fdr")
+mean_long <- melt(df[, c("perturb_id", mean_cols)],
+                  id.vars = "perturb_id",
+                  variable.name = "parameter",
+                  value.name = "mean")
+mean_long$parameter <- sub("_mean$", "", mean_long$parameter)
+
+fdr_long <- melt(df[, c("perturb_id", fdr_cols)],
+                 id.vars = "perturb_id",
+                 variable.name = "parameter",
+                 value.name = "fdr")
+fdr_long$parameter <- sub("_fdr$", "", fdr_long$parameter)
+plot_df <- merge(mean_long, fdr_long, by = c("perturb_id", "parameter"))
+plot_df$parameter <- factor(plot_df$parameter, levels = params)
+plot_df$star <- ifelse(!is.na(plot_df$fdr) & plot_df$fdr < 0.05, "*", "")
+
+panel_a <- ggplot(plot_df, aes(x = parameter, y = perturb_id, fill = mean)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = star), size = 6, vjust = 0.75) +
+  scale_fill_gradient2(low = cb_blue, mid = "white", high = cb_orange, midpoint = 1) +
+  labs(x = NULL, y = NULL, fill = "ASO/Control", tag = 'A') +
   panel_theme +
-  # scale_fill_brewer(palette = "Set2", guide = guide_legend(reverse = TRUE), drop = FALSE) +
-  theme(axis.title.x = element_blank(),
-        axis.text.x = element_text(size = 6, vjust = 0.5, hjust = 1),
-        legend.title = element_text(size = 6),
-        legend="bottom",
-        axis.text.y = element_text(size = 6),
-        plot.title = element_text(size = 6),
-        legend.key.size = unit(0.2, "cm"),
-        legend.text = element_text(size = 5),
-        plot.tag = element_text(size = 6, face="plain")) +
-  labs(tag = label, title = "H3K36me3 peaks (%) (5'->3')")
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-  return(p)
+# Panels B-E: gene tracks with differential promoter usage
+image_panel <- function(png_file, tag) {
+  img  <- readPNG(png_file)
+  grob <- rasterGrob(img, interpolate = TRUE,
+                     width = unit(1, "npc"), height = unit(1, "npc"))
+  ggplot(geom = "blank") +
+    annotation_custom(grob) +
+    theme_void() +
+    theme(plot.tag = element_text(size = 6, face = "plain"),
+          plot.margin = margin(0, 0, 0, 0)) +
+    labs(tag = tag)
 }
 
-
-gtf_file <- "gencode.v49.annotation.gtf"
-txdb     <- makeTxDbFromGFF(gtf_file)
-
-# B. Himorna peaks counts
-# Read himorna peaks
-ctd_himorna <- read.csv('ENSG00000267577.tsv', sep = '\t')
-ctd_himorna$peak_type <- NA
-ctd_himorna[ctd_himorna$corr > 0, 'peak_type'] <- 'rho > 0.5'
-ctd_himorna[ctd_himorna$corr < 0, 'peak_type'] <- 'rho < -0.5'
-
-# Count peaks h3k36me3
-hm_counts <- as.data.frame(table(ctd_himorna$hm, ctd_himorna$peak_type), dnn = c("Histone mark", "Sperman rho"))
-
-hm_counts$Var1   <- factor(hm_counts$Var1,
-    levels = rev(c('H3K36me3', 'H3K27me3', 'H3K4me3', 'H3K27ac', 'H3K4me1', 'H3K4me2', 'H3K9ac', 'H3K9me3', 'H3K79me2', 'H4K20me1')))
-
-hm_counts <- as.data.frame(tidyr::complete(hm_counts, Var2, Var1))
-
-panel_a <- ggplot(hm_counts, aes(x = Var1, y = Freq, fill = Var2)) +
-  theme_bw() +
-  geom_bar(position="dodge", stat="identity") +
-  geom_text(aes(label = ifelse(is.na(Freq) | Freq == 0, "", Freq)),
-            position = position_dodge(width = 0.9),
-            hjust = -0.2, size = 1.8) +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
-  scale_fill_brewer(palette = "Set1", guide = guide_legend(reverse = TRUE), drop = FALSE) +#  scale_y_break(c(10, 500)) +  # break the axis between 10 and 1190
-  theme(panel.border = element_blank(), 
-  panel.grid.major = element_blank(),
-  panel.grid.minor = element_blank(),
-  legend.position = 'bottom',
-  text = element_text(size = 7),
-  axis.text.x = element_text(size = 6),
-  axis.ticks.x = element_blank(),
-  axis.title.y = element_text(size = 6),
-  axis.text.y = element_text(size = 6),
-  legend.key.size = unit(0.2, "cm"),
-  legend.text = element_text(size = 5),
-  plot.title = element_text(size = 6, hjust = 0.5),
-  plot.tag = element_text(size = 8, face="plain")) +
-  guides(fill=guide_legend(ncol = 2)) +
-  labs(title = "Peaks correlated with DNAAF3-AS1", x = "", y = "Number of peaks", fill = "", tag = "A") +
-  coord_flip()
+g1 <- readPNG('MDM2.png')
+panel_b <- image_panel('MDM2.png',  "B")
+g2 <- readPNG('NR2F2.png')
+panel_c <- image_panel('NR2F2.png', "C")
+g3 <- readPNG('FASTK.png')
+panel_d <- image_panel('FASTK.png', "D")
+g4 <- readPNG('CFDP1.png')
+panel_e <- image_panel('CFDP1.png', "E")
 
 
-# C. Himorna peaks distance from TSS
-himorna_peaks <- read.csv("ENSG00000267577.tsv", sep = "\t")
-himorna_peaks <- dplyr::filter(himorna_peaks, hm == "H3K36me3")
+rdbu_ramp <- grDevices::colorRampPalette(RColorBrewer::brewer.pal(11, "RdBu"))
+rdbu_at <- function(value, lo = -1, hi = 1, n = 256L) {
+  pal <- rdbu_ramp(n)
+  pal[pmin(n, pmax(1L, round((value - lo) / (hi - lo) * (n - 1L)) + 1L))]
+}
 
-himorna_peaks_pos_cor <- himorna_peaks[himorna_peaks$corr > 0, ]
-himorna_peaks_neg_cor <- himorna_peaks[himorna_peaks$corr < 0, ]
-rownames(himorna_peaks_pos_cor) <- himorna_peaks_pos_cor$X
-rownames(himorna_peaks_neg_cor) <- himorna_peaks_neg_cor$X
+promoter_cats <- data.frame(
+  label = c("Significant (p < 0.05), coef < 0",
+            "Significant (p < 0.05), coef > 0",
+            "Not significant, coef < 0",
+            "Not significant, coef > 0"),
+  value = c(1, -1, 0.3, -0.3),
+  stringsAsFactors = FALSE)
+promoter_cats$label <- factor(promoter_cats$label, levels = promoter_cats$label)
+promoter_cat_colours <- setNames(rdbu_at(promoter_cats$value), promoter_cats$label)
 
-p31 <-  get_tss_dist(himorna_peaks_pos_cor, 'rho > 0', "B", txdb) 
-p32 <-  get_tss_dist(himorna_peaks_neg_cor, 'rho < 0', "", txdb) 
-panel_b <- ggarrange(p31, p32, ncol = 1, nrow = 2, common.legend = TRUE, legend="bottom")
+promoter_legend_plot <- ggplot(promoter_cats, aes(x = label, fill = label)) +
+  geom_bar() +
+  scale_fill_manual(values = promoter_cat_colours, name = "Promoter") +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
+  panel_theme +
+  theme(legend.position = "bottom",
+        legend.spacing.x = unit(0.4, "cm"),
+        legend.text = element_text(size = 5, margin = margin(r = 0.4, unit = "cm")))
 
+get_legend <- function(p) {
+  g   <- ggplotGrob(p)
+  idx <- which(vapply(g$grobs, function(x) x$name, character(1)) == "guide-box")
+  g$grobs[[idx]]
+}
+promoter_legend <- get_legend(promoter_legend_plot)
 
-############
-
-fantom <- read.csv('DESeq2_genes_ASO_all.tsv', sep = '\t')
-aso01 <- dplyr::filter(fantom, perturb_id == 'ASO_G0267577_01')
-aso01 <- aso01[aso01$fdr < 0.05, ]
-
-aso03 <- dplyr::filter(fantom, perturb_id == 'ASO_G0267577_03')
-aso03 <- aso03[aso03$fdr < 0.05, ]
-
-fantom_subset <- dplyr::filter(fantom, geneSymbol %in% c('SETD2',
-  'NSD1',
-  'WHSC1',
-  'WHSC1L1',
-  'ASH1L',
-  'SETMAR',
-  'SMYD2',
-  'SMYD5',
-  'SETD3',
-  'SETDB1',
-  'KDM2A',
-  'KDM2B',
-  'KDM4A',
-  'KDM4B',
-  'KDM4C',
-  'KDM4D',
-  'DNAH3','KIF27','RAB3IP','AXDND1','CFAP54','DNAH2','CCDC13','CC2D2B'))
-
-fantom_subset <- dplyr::filter(fantom_subset, perturb_id %in% c('ASO_G0267577_01', 'ASO_G0267577_03'))
-fantom_subset$sig <- ""
-fantom_subset[fantom_subset$fdr < 0.05, 'sig'] <- '*'
-fantom_subset[fantom_subset$fdr < 0.001, 'sig'] <- '**'
-fantom_subset[fantom_subset$fdr < 0.0001, 'sig'] <- '***'
-
-
-panel_c <- ggplot(fantom_subset, aes(x = geneSymbol, y = perturb_id, fill = log2FC))+
-theme_bw() +
-geom_tile() +
-scale_fill_distiller(palette = "RdBu", limits = c(-1.5, 1.5)) +
-geom_text(data=fantom_subset, aes(x = geneSymbol, y = perturb_id, label = sig, angle = 0), size=2.5) +
-scale_x_discrete(drop = FALSE) +
-scale_y_discrete(drop = FALSE) +
-theme(panel.border = element_blank(), 
-      panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank(), 
-      text = element_text(size = 6),
-      axis.text.x = element_text(angle = 0, size = 6),
-      axis.text.y = element_text(angle = 0, size = 6),
-      axis.ticks.x = element_blank(),
-      axis.ticks.y = element_blank(),
-      axis.title.y = element_blank(),
-      plot.title = element_text(size = 6, face="plain"),
-      plot.tag = element_text(size = 8, face="plain"),
-      legend.position="right",
-      legend.key.size = unit(0.2, "cm"),
-      legend.text = element_text(size = 5),
-      legend.title=element_text(size = 6)) +
-labs(title = "", tag = "C")
-
-
-
-
-g <- arrangeGrob(panel_a, panel_b, panel_c, ncol = 2, nrow =2, layout_matrix= rbind(c(1,2), c(3,3)))
-ggsave(paste0("Supplementary_Figure3.png"), plot = g, width = 18, height = 15, units = "cm")
+figure3_grob <- arrangeGrob(
+    panel_a, panel_b, panel_c, panel_d, panel_e, promoter_legend,
+    ncol = 2, nrow = 4,
+    layout_matrix = rbind(c(1,1), c(2,3), c(4,5), c(6,6)),
+    heights = unit.c(unit(1, "null"), unit(1, "null"),
+                     unit(1, "null"), unit(1.2, "cm"))
+)
+ggsave("Supplementary_Figure3.png", plot = figure3_grob, width = 18, height = 24, units = "cm")

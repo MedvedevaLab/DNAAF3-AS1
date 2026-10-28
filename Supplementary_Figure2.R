@@ -1,30 +1,9 @@
 library(ggplot2)
-library(magick)
-library(ggbreak)
-library(ggpubr)
-library(ChIPseeker)
-library(png)
 library(gridExtra)
-library(reshape2)
-library(AnnotationHub)
-library(biomaRt)
-library(scales)
-library(RColorBrewer)
-# library(ChIPpeakAnno)
-library(stringr)
-library(GenomeInfoDb)
-library(dplyr)
-library(TxDb.Hsapiens.UCSC.hg38.knownGene)
-library(ChIPpeakAnno)
-library(png)
-library(grid)
-library(ggsankey)
-library(ggbreak) 
-library("ggVennDiagram")
-
-library(UpSetR)
+library(ggpubr)
 
 panel_theme <- theme(
+    strip.background = element_blank(),
     panel.border       = element_blank(),
     panel.grid.major   = element_blank(),
     panel.grid.minor   = element_blank(),
@@ -41,126 +20,28 @@ panel_theme <- theme(
     legend.spacing.y   = unit(2, "cm")
 )
 
+# Panel A:
+panel_a <- readRDS('decoupler_p53_activity_all_ASOs.rds') + 
+	panel_theme + 
+	theme(axis.text.y = element_blank(),
+	    axis.title.y = element_text(size = 6)) + 
+	labs(x = "p53 pathway activity (mlm score)", y = "ASO",
+         fill = "",
+         title = "PROGENy p53 pathway activity across ASOs",
+         tag = "A")
 
-df <- read.csv('cell_profiler.csv', sep = '\t', dec = ',')
-df <- df[df$KD.pubID == 'CTD-2587H24.5', ]
-df <- df[df$perturb_id %in% c("ASO_G0267577_01", "ASO_G0267577_03"),]
+# Panel B: decoupler PROGENy pathway activity ASO_G0267577_03
+panel_b <- readRDS('decoupler_ASO_G0267577_03_pathway_activities.rds') + panel_theme + labs(title = "ASO_03 PROGENy pathway activities", tag = "B")
 
-params <- c(
-  "GrowthRate",
-  "Area",
-  "Compactness",
-  "Eccentricity",
-  "Extent",
-  "FormFactor",
-  "MajorAxisLength",
-  "MaxFeretDiameter",
-  "MaximumRadius",
-  "MedianRadius",
-  "MinFeretDiameter",
-  "MinorAxisLength",
-  "Perimeter",
-  "Solidity"
+# Panel C: decoupler p53 genes 
+panel_c1 <- readRDS('decoupler_ASO_G0267577_01_p53_targets.rds') + panel_theme +  labs(title = "ASO_01 p53 target genes", tag = "C") + theme(legend.position = "bottom")
+panel_c2 <- readRDS('decoupler_ASO_G0267577_03_p53_targets.rds') + panel_theme +  labs(title = "ASO_03 p53 target genes", tag = "") + theme(legend.position = "bottom")
+panel_c <- ggarrange(panel_c1, panel_c2, ncol = 2, common.legend = TRUE, legend = "bottom")
+
+figure1_grob <- arrangeGrob(
+    panel_a, panel_b, panel_c,
+    ncol = 2, nrow = 2,
+    layout_matrix = rbind(c(1, 2), c(3, 3))
 )
 
-mean_cols <- paste0(params, "_mean")
-fdr_cols  <- paste0(params, "_fdr")
-
-# means -> long
-mean_long <- melt(df[, c("perturb_id", mean_cols)],
-                  id.vars = "perturb_id",
-                  variable.name = "parameter",
-                  value.name = "mean")
-mean_long$parameter <- sub("_mean$", "", mean_long$parameter)
-
-# fdr -> long
-fdr_long <- melt(df[, c("perturb_id", fdr_cols)],
-                 id.vars = "perturb_id",
-                 variable.name = "parameter",
-                 value.name = "fdr")
-fdr_long$parameter <- sub("_fdr$", "", fdr_long$parameter)
-
-# combine
-plot_df <- merge(mean_long, fdr_long, by = c("perturb_id", "parameter"))
-
-# keep column order as requested
-plot_df$parameter <- factor(plot_df$parameter, levels = params)
-
-# significance stars
-plot_df$star <- ifelse(!is.na(plot_df$fdr) & plot_df$fdr < 0.05, "*", "")
-
-panel_a <- ggplot(plot_df, aes(x = parameter, y = perturb_id, fill = mean)) +
-  geom_tile(color = "white") +
-  geom_text(aes(label = star), size = 6, vjust = 0.75) +
-  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 1) +
-  labs(x = NULL, y = NULL, fill = "mean") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# Panel A
-img <- readPNG('MDM2.png')
-g1 <- rasterGrob(img,
-  interpolate=TRUE, width = unit(6,"in"), height=unit(1.2,"in"))
-
-panel_b1<- ggplot(geom="blank") +
-  annotation_custom(g1) +
-  theme_bw() +
-  panel_theme +
-  theme(
-      axis.title.x = element_blank(),
-      legend.key.size = unit(0.2, "cm"),
-      legend.text = element_text(size = 5)) + labs(tag = "B")
-
-
-img <- readPNG('NR2F2.png')
-g2 <- rasterGrob(img,
-  interpolate=TRUE, width = unit(6,"in"), height=unit(1.2,"in"))
-
-panel_b2<- ggplot(geom="blank") +
-  annotation_custom(g2) +
-  theme_bw() +
-  panel_theme +
-  theme(
-      axis.title.x = element_blank(),
-      legend.key.size = unit(0.2, "cm"),
-      legend.text = element_text(size = 5)) + labs(tag = "B")
-
-
-img <- readPNG('FASTK.png')
-g3 <- rasterGrob(img,
-  interpolate=TRUE, width = unit(6,"in"), height=unit(1.2,"in"))
-
-panel_b3<- ggplot(geom="blank") +
-  annotation_custom(g3) +
-  theme_bw() +
-  panel_theme +
-  theme(
-      axis.title.x = element_blank(),
-      legend.key.size = unit(0.2, "cm"),
-      legend.text = element_text(size = 5)) + labs(tag = "B")
-
-
-img <- readPNG('CFDP1.png')
-g4 <- rasterGrob(img,
-  interpolate=TRUE, width = unit(6,"in"), height=unit(1.2,"in"))
-
-panel_b4<- ggplot(geom="blank") +
-  annotation_custom(g4) +
-  theme_bw() +
-  panel_theme +
-  theme(
-      axis.title.x = element_blank(),
-      legend.key.size = unit(0.2, "cm"),
-      legend.text = element_text(size = 5)) + labs(tag = "B")
-
-panel_b <- ggarrange(panel_b1, panel_b2, panel_b3, panel_b4, ncol = 1, common.legend = TRUE, legend = "bottom")
-
-
-figure2_grob <- arrangeGrob(
-    panel_a, panel_b1, panel_b2, panel_b3, panel_b4,
-    ncol = 1, nrow = 5,
-    layout_matrix = rbind(c(1), c(2), c(3), c(4), c(5))
-)
-ggsave("Supplementary_Figure2.png", plot = figure2_grob, width = 18, height = 24, units = "cm")
-
-
+ggsave("Supplementary_Figure2.png", plot = figure1_grob, width = 18, height = 18, units = "cm")

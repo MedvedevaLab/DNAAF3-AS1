@@ -8,13 +8,13 @@ db <- dba(sampleSheet = "CTD-2587H24.5_H3K36me3.csv")
 # Count reads (use full peaks for broad marks)
 db <- dba.count(db, 
                 summits = FALSE,
-                minOverlap = 1)     # Your estimated fragment length , fragmentSize = 200
+                minOverlap = 1)
 
 # Define contrast (Control vs KD)
-db <- dba.contrast(db, design = ~Condition, contrast = c('Condition', 'KD', 'Control'), #                   categories = DBA_CONDITION, 
+db <- dba.contrast(db, design = ~Condition, contrast = c('Condition', 'KD', 'Control'),
                    minMembers = 2)
 
-db <- dba.normalize(db, method = DBA_ALL_METHODS) #DBA_ALL_METHODS  , background=TRUE , normalize=DBA_NORM_NATIVE, background=TRUE
+db <- dba.normalize(db, method = DBA_ALL_METHODS)
 
 # Perform differential analysis
 db <- dba.analyze(db, method = DBA_ALL_METHODS)
