@@ -52,7 +52,7 @@ plot_targets <- function(deg, top_pathway, net, aso_id) {
     saveRDS(p_targets, paste0("decoupler_", aso_id, "_", top_pathway, "_targets.rds"))
 }
 
-run_aso <- function(deseq, net, aso_id) {
+run_aso <- function(deseq, net, aso_id, save_plots = FALSE) {
     message("Running decoupleR for ", aso_id)
     deg <- deseq %>%
         filter(perturb_id == aso_id) %>%
@@ -71,21 +71,21 @@ run_aso <- function(deseq, net, aso_id) {
         arrange(score) %>%
         mutate(source = factor(source, levels = source))
 
-    plot_pathways(pathway_df, aso_id)
+    saveRDS(pathway_df, paste0("decoupler_", aso_id, "_pathway_df.rds"))
 
-    bar_df <- acts %>%
-      filter(statistic == "mlm") %>%
-      arrange(score) %>%
-      mutate(source = factor(source, levels = source))
-    
-    top_pathway <- bar_df$source[which.max(bar_df$score)]
-    top_pathway <- as.character(top_pathway)
-    plot_targets(deg, top_pathway, net, aso_id)
+    if (save_plots) {
+        plot_pathways(pathway_df, aso_id)
 
-    top_pathway <- bar_df$source[which.min(bar_df$score)]
-    top_pathway <- as.character(top_pathway)
-    plot_targets(deg, top_pathway, net, aso_id)
+        top_pathway <- pathway_df$source[which.max(pathway_df$score)]
+        top_pathway <- as.character(top_pathway)
+        plot_targets(deg, top_pathway, net, aso_id)
 
+        top_pathway <- pathway_df$source[which.min(pathway_df$score)]
+        top_pathway <- as.character(top_pathway)
+        plot_targets(deg, top_pathway, net, aso_id)
+    }
+
+    invisible(pathway_df)
 }
 
 # Load DE results 
@@ -97,6 +97,59 @@ deseq <- deseq %>%
     mutate(stat = sign(log2FC) * -log10(pmax(fdr, .Machine$double.xmin)))
 
 net <- get_progeny(organism = "human", top = 500)
+plot_asos <- c("ASO_G0267577_01", "ASO_G0267577_03")
+all_asos <- unique(deseq$perturb_id)
 
-run_aso(deseq, net, "ASO_G0267577_01")
-run_aso(deseq, net, "ASO_G0267577_03")
+for (aso_id in all_asos) {
+    run_aso(deseq, net, aso_id, save_plots = aso_id %in% plot_asos)
+}
+pathway_list <- setNames(
+    lapply(all_asos, function(aso_id)
+        readRDS(paste0("decoupler_", aso_id, "_pathway_df.rds"))),
+    all_asos)
+
+# Barplot of p53 pathway activity across all ASOs
+p53_df <- bind_rows(lapply(names(pathway_list), function(aso_id) {
+    pathway_list[[aso_id]] %>%
+        mutate(source = as.character(source)) %>%
+        filter(source == "p53") %>%
+        transmute(aso_id = aso_id, score = score)
+}))
+
+# Sort ASOs by p53 activity and flag the two highlighted ASOs
+highlight_cols <- c("ASO_G0267577_01" = cb_blue,
+                    "ASO_G0267577_03" = cb_orange)
+
+p53_df <- p53_df %>%
+    arrange(score) %>%
+    mutate(aso_id = factor(aso_id, levels = aso_id),
+           highlight = ifelse(as.character(aso_id) %in% names(highlight_cols),
+                              as.character(aso_id), "Other"))
+
+fill_values <- c(highlight_cols, Other = "grey70")
+
+p_p53 <- ggplot(p53_df, aes(x = score, y = aso_id, fill = highlight)) +
+    geom_col() +
+    geom_vline(xintercept = 0, color = "black", linewidth = 0.3) +
+    scale_fill_manual(values = fill_values,
+                      breaks = names(highlight_cols)) +
+    theme_bw() +
+    theme(panel.grid = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank()) +
+    labs(x = "p53 pathway activity (mlm score)", y = "",
+         fill = "",
+         title = "PROGENy p53 pathway activity across ASOs")
+
+ggsave("decoupler_p53_activity_all_ASOs.png", p_p53,
+       width = 6, height = max(4, 0.2 * nrow(p53_df)), dpi = 300)
+saveRDS(p_p53, "decoupler_p53_activity_all_ASOs.rds")
+
+# Quantile of the highlighted ASOs within the p53 score distribution
+p53_ecdf <- ecdf(p53_df$score)
+for (aso_id in names(highlight_cols)) {
+    aso_score <- p53_df$score[as.character(p53_df$aso_id) == aso_id]
+    q <- p53_ecdf(aso_score)
+    message(sprintf("%s: p53 score = %.3f, quantile = %.3f (%.1f%%)",
+                    aso_id, aso_score, q, 100 * q))
+}
