@@ -8,10 +8,10 @@ library(RColorBrewer)
 library(stringr)
 
 # https://www.nature.com/articles/s41420-025-02802-4
-counts2 <- read.csv('GSE112013_Combined_UMI_table.txt', sep="\t", row.names = 1)
+counts <- read.csv('GSE112013_Combined_UMI_table.txt', sep="\t", row.names = 1)
 
-seurat_object <- CreateSeuratObject(counts = counts2, 
-                             project = "testis2", 
+seurat_object <- CreateSeuratObject(counts = counts, 
+                             project = "testis", 
                              min.cells = 0, 
                              min.features = 0)
 
@@ -26,9 +26,6 @@ seurat_object <- RunUMAP(seurat_object, dims = 1:12, reduction.key = "UMAP_")
 seurat_object$UMAP_1 <- as.data.frame(Embeddings(object = seurat_object[["umap"]]))$UMAP_1
 seurat_object$UMAP_2 <- as.data.frame(Embeddings(object = seurat_object[["umap"]]))$UMAP_2
 
-#Tsne
-seurat_object <- RunTSNE(seurat_object, dims.use = 1:20, reduction.use = "pca")
-
 # Clusterization
 seurat_object <- FindNeighbors(seurat_object, dims = 1:12)
 seurat_object <- FindClusters(seurat_object, resolution = 1)
@@ -37,7 +34,7 @@ Idents(object = seurat_object) <- seurat_object@meta.data$seurat_clusters
 
 seurat_object@meta.data$celltype <- NA
 seurat_object@meta.data$celltype[seurat_object@meta.data$seurat_clusters == 0] = "Sperm3"
-seurat_object@meta.data$celltype[seurat_object@meta.data$seurat_clusters == 1] = "Myoid cells" #
+seurat_object@meta.data$celltype[seurat_object@meta.data$seurat_clusters == 1] = "Myoid cells" 
 seurat_object@meta.data$celltype[seurat_object@meta.data$seurat_clusters == 2] = "Sperm2"
 seurat_object@meta.data$celltype[seurat_object@meta.data$seurat_clusters == 3] = "Early primary S'cytes"
 seurat_object@meta.data$celltype[seurat_object@meta.data$seurat_clusters == 4] = "Endothelial cells"
