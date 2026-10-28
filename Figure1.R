@@ -134,7 +134,7 @@ panel_c <- ggplot(sig_counts, aes(x = perturb_id, y = n_sig, fill = highlight)) 
     scale_x_discrete(labels = x_labels) +
     panel_theme +
     theme(axis.title.x       = element_text(size = 6),
-        axis.title.y       = element_text(size = 6, angle = 90)) +
+        axis.title.y       = element_text(size = 5, angle = 90)) +
     theme(axis.text.x = element_text(size = 5, angle = 90, hjust = 1, vjust = 0.5)) +
     labs(title = "",
         x = "ASO",
