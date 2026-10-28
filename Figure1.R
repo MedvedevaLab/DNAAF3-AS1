@@ -8,6 +8,7 @@ library(grid)
 library(clusterProfiler)
 library(org.Hs.eg.db)
 library(BiocParallel)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 
 BiocParallel::register(BiocParallel::MulticoreParam(workers = 1, progressbar = TRUE))
 
