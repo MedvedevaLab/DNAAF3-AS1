@@ -91,7 +91,7 @@ extract_module_scores <- function(rds_file, source_label) {
   )
 }
 
-# C. Himorna target genes modules expression
+# D. Himorna target genes modules expression
 promoter_scores <- extract_module_scores("testis_promoter.rds", "Promoter")
 genebody_scores <- extract_module_scores("testis_genebody.rds", "Gene body")
 
@@ -128,4 +128,4 @@ g <- arrangeGrob(
   layout_matrix = rbind(c(1, 1), c(1, 1),  c(2, 3), c(4, 4), c(4, 4))
 )
 
-ggsave("Supplementary_Figure8.png", plot = g, width = 16, height = 24, units = "cm")
+ggsave("Supplementary_Figure8.png", plot = g, width = 16, height = 20, units = "cm")

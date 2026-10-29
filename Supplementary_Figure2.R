@@ -20,28 +20,28 @@ panel_theme <- theme(
     legend.spacing.y   = unit(2, "cm")
 )
 
-# Panel A:
-panel_a <- readRDS('decoupler_p53_activity_all_ASOs.rds') + 
-	panel_theme + 
-	theme(axis.text.y = element_blank(),
-	    axis.title.y = element_text(size = 6)) + 
-	labs(x = "p53 pathway activity (mlm score)", y = "ASO",
-         fill = "",
-         title = "PROGENy p53 pathway activity across ASOs",
-         tag = "A")
+# Panel A: decoupler p53 genes 
+panel_a1 <- readRDS('decoupler_ASO_G0267577_01_p53_targets.rds') + panel_theme +  labs(title = "ASO_01 p53 target genes", tag = "C") + theme(legend.position = "bottom")
+panel_a2 <- readRDS('decoupler_ASO_G0267577_03_p53_targets.rds') + panel_theme +  labs(title = "ASO_03 p53 target genes", tag = "") + theme(legend.position = "bottom")
+panel_a <- ggarrange(panel_a1, panel_a2, ncol = 2, common.legend = TRUE, legend = "bottom")
 
 # Panel B: decoupler PROGENy pathway activity ASO_G0267577_03
 panel_b <- readRDS('decoupler_ASO_G0267577_03_pathway_activities.rds') + panel_theme + labs(title = "ASO_03 PROGENy pathway activities", tag = "B")
 
-# Panel C: decoupler p53 genes 
-panel_c1 <- readRDS('decoupler_ASO_G0267577_01_p53_targets.rds') + panel_theme +  labs(title = "ASO_01 p53 target genes", tag = "C") + theme(legend.position = "bottom")
-panel_c2 <- readRDS('decoupler_ASO_G0267577_03_p53_targets.rds') + panel_theme +  labs(title = "ASO_03 p53 target genes", tag = "") + theme(legend.position = "bottom")
-panel_c <- ggarrange(panel_c1, panel_c2, ncol = 2, common.legend = TRUE, legend = "bottom")
+# Panel C:
+panel_c <- readRDS('decoupler_p53_activity_all_ASOs.rds') + 
+    panel_theme + 
+    theme(axis.text.y = element_blank(),
+        axis.title.y = element_text(size = 6)) + 
+    labs(x = "p53 pathway activity (mlm score)", y = "ASO",
+         fill = "",
+         title = "PROGENy p53 pathway activity across ASOs",
+         tag = "A")
 
-figure1_grob <- arrangeGrob(
+g <- arrangeGrob(
     panel_a, panel_b, panel_c,
     ncol = 2, nrow = 2,
-    layout_matrix = rbind(c(1, 2), c(3, 3))
+    layout_matrix = rbind(c(1, 1), c(2, 3))
 )
 
-ggsave("Supplementary_Figure2.png", plot = figure1_grob, width = 18, height = 18, units = "cm")
+ggsave("Supplementary_Figure2.png", plot = g, width = 18, height = 18, units = "cm")

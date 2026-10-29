@@ -263,5 +263,5 @@ panel_cd <- arrangeGrob(
   heights = unit.c(unit(1, "null"), unit(1, "cm"))
 )
 
-g <- arrangeGrob(panel_c, panel_d, panel_cd, ncol = 2, nrow = 3, layout_matrix= rbind(c(1,2), c(3,3), c(3,3)))
+g <- arrangeGrob(panel_a, panel_b, panel_cd, ncol = 2, nrow = 3, layout_matrix= rbind(c(1,2), c(3,3), c(3,3)))
 ggsave("Figure2.png", plot = g, width = 18, height = 20, units = "cm")
